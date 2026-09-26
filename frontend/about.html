@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About — OnceFlash</title>
+  <meta name="description" content="About OnceFlash: Zero-knowledge ephemeral note and file sharing service. Learn how it works and how to use it." />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="referrer" content="no-referrer" />
+
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/img/icon-192.png" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="/theme.js"></script>
+</head>
+<body>
+
+<div class="app-container">
+
+  <!-- ─── BRAND HEADER ─── -->
+  <header class="brand-header" role="banner">
+    <div class="brand-top-bar">
+      <a href="/" class="brand-logo-link" aria-label="OnceFlash Home">
+        <img src="/img/icon.png" alt="OnceFlash" class="brand-icon-img" width="44" height="44" />
+        <span class="brand-name">OnceFlash</span>
+      </a>
+      <button type="button" id="theme-toggle-btn" class="theme-toggle-btn" aria-label="Toggle dark/light theme" title="Toggle theme">
+        <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+        <svg class="theme-icon-moon" style="display: none;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+      </button>
+    </div>
+    <p class="brand-tagline">
+      Easily send <em>fully encrypted</em>, secure notes or files with one click.
+    </p>
+  </header>
+
+  <!-- ─── ABOUT CONTENT ─── -->
+  <main style="width: 100%;" role="main">
+    <section class="composer-box about-panel" aria-label="About OnceFlash">
+      
+      <div class="about-header">
+        <h1 class="about-title">About</h1>
+        <p class="about-tagline">
+          <em>OnceFlash</em> is a secure, open-source, zero-knowledge ephemeral note and file sharing service inspired by <a href="https://cryptgeon.org" target="_blank" rel="noopener noreferrer" class="about-link">Cryptgeon</a> and <a href="https://privnote.com" target="_blank" rel="noopener noreferrer" class="about-link">PrivNote</a>.
+        </p>
+      </div>
+
+      <!-- How does it work? -->
+      <div class="about-section-block">
+        <h2 class="about-heading">how does it work?</h2>
+        <p class="about-text">
+          Each note has a generated cryptographic key (256-bit AES) and a fresh 96-bit initialization vector (IV) generated directly in your browser via <code>window.crypto.subtle</code> (CSPRNG).
+        </p>
+        <p class="about-text">
+          The note or file is encrypted with <strong>AES-256-GCM</strong> on the client side with the key before transmission. The server receives only opaque, unreadable ciphertext.
+        </p>
+
+
+        <p class="about-text">
+          Data is stored ephemerally in volatile memory (RAM) and never persisted to disk. The server never sees the encryption key and cannot decrypt the contents of the notes even if it tried to.
+        </p>
+      </div>
+
+      <!-- How to use -->
+      <div class="about-section-block">
+        <h2 class="about-heading">how to use</h2>
+        <ul class="about-steps-list">
+          <li class="about-step-item">
+            <span class="about-step-num">01</span>
+            <div><strong>Compose:</strong> Write your confidential note or drag &amp; drop a file (up to 2 MB).</div>
+          </li>
+          <li class="about-step-item">
+            <span class="about-step-num">02</span>
+            <div><strong>Configure Constraints:</strong> Select view limit (1 to 100 views, or burn on read) and expiration duration (5 minutes to 7 days).</div>
+          </li>
+          <li class="about-step-item">
+            <span class="about-step-num">03</span>
+            <div><strong>Encrypt &amp; Share:</strong> Click "Create Note" to encrypt client-side and copy your secret one-time link.</div>
+          </li>
+          <li class="about-step-item">
+            <span class="about-step-num">04</span>
+            <div><strong>Decryption &amp; Burn:</strong> The recipient opens the link; their browser decrypts the data in memory, and the secret is immediately purged from the server.</div>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Bottom Actions & Attribution -->
+      <div style="margin-top: 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <span style="font-size: 0.85rem; color: var(--text-muted);">
+          Inspired by <a href="https://cryptgeon.org" target="_blank" rel="noopener noreferrer" class="about-link">Cryptgeon</a> &amp; <a href="https://privnote.com" target="_blank" rel="noopener noreferrer" class="about-link">PrivNote</a>
+        </span>
+        <a href="/" class="btn-primary" style="text-decoration: none;">← Back to Messenger</a>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- ─── FOOTER ─── -->
+  <footer class="app-footer" role="contentinfo">
+    <nav class="footer-nav" aria-label="Site Navigation">
+      <a href="/" class="footer-nav-link">/home</a>
+      <span class="footer-nav-separator">/</span>
+      <a href="/about" class="footer-nav-link active">/about</a>
+    </nav>
+    <p class="footer-subtext">
+      OnceFlash © 2026 | Zero-Knowledge Encrypted Messenger &bull; Burn-on-Read
+    </p>
+  </footer>
+
+</div>
+
+</body>
+</html>

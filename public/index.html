@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OnceFlash — Secure Encrypted Notes</title>
+  <meta name="description" content="Send fully encrypted, self-destructing notes or files with one click. Zero-knowledge browser encryption." />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="referrer" content="no-referrer" />
+
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/img/icon-192.png" />
+
+  <!-- Clean, modern Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="/theme.js"></script>
+</head>
+<body>
+
+<div class="app-container">
+
+  <!-- ─── BRAND HEADER ─── -->
+  <header class="brand-header" role="banner">
+    <div class="brand-top-bar">
+      <a href="/" class="brand-logo-link" aria-label="OnceFlash Home">
+        <img src="/img/icon.png" alt="OnceFlash" class="brand-icon-img" width="44" height="44" />
+        <span class="brand-name">OnceFlash</span>
+      </a>
+      <button type="button" id="theme-toggle-btn" class="theme-toggle-btn" aria-label="Toggle dark/light theme" title="Toggle theme">
+        <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+        <svg class="theme-icon-moon" style="display: none;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+      </button>
+    </div>
+    <p class="brand-tagline">
+      Easily send <em>fully encrypted</em>, secure notes or files with one click. Just create a note and share the link.
+    </p>
+  </header>
+
+  <!-- ─── MAIN COMPOSER BOX ─── -->
+  <main style="width: 100%;" role="main">
+
+    <!-- ═══ CREATE PANEL ═══ -->
+    <section id="create-panel" class="composer-box" aria-label="Create Encrypted Note">
+      
+      <!-- Mode Tabs (Note / File) -->
+      <div class="composer-tabs" role="tablist">
+        <button type="button" class="tab-btn active" id="tab-text-btn" role="tab" aria-selected="true">
+          Note
+        </button>
+        <button type="button" class="tab-btn" id="tab-file-btn" role="tab" aria-selected="false">
+          File
+        </button>
+        <span class="char-indicator" id="char-count">0 / 500,000</span>
+      </div>
+
+      <!-- Text Note Input -->
+      <div id="text-tab-content">
+        <div class="input-wrapper">
+          <textarea
+            id="note-input"
+            placeholder="Type your secret note here...&#10;&#10;Encrypted client-side with AES-256-GCM. The server never sees your content or keys."
+            maxlength="500000"
+            spellcheck="false"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+          ></textarea>
+        </div>
+      </div>
+
+      <!-- File Attachment Area (Supports Multi-File Bundle) -->
+      <div id="file-tab-content" style="display: none;">
+        <div class="dropzone" id="drop-zone" role="button" tabindex="0">
+          <div class="dropzone-icon">📁</div>
+          <div class="dropzone-title">Click or drop file(s) here</div>
+          <div class="dropzone-desc">Encrypted before upload. Multi-file bundle supported (up to 5 MB total).</div>
+        </div>
+        <input type="file" id="file-input" multiple style="display: none;" />
+        <div id="file-list-preview" class="file-chip-list" style="display: none;"></div>
+      </div>
+
+      <!-- Security Enhancements & Controls Options -->
+      <div class="options-group">
+        <div class="option-row" style="margin-bottom: 0.6rem;">
+          <label class="checkbox-label" for="enable-passphrase">
+            <input type="checkbox" id="enable-passphrase" />
+            <span>Protect with a secondary passphrase</span>
+          </label>
+        </div>
+        <div id="passphrase-container" style="display: none; margin-bottom: 0.85rem;">
+          <input type="password" id="note-passphrase" class="text-input" placeholder="Enter secondary secret passphrase" autocomplete="new-password" />
+          <p class="input-hint">Recipient will need both the link AND this passphrase to decrypt. Wrapped with PBKDF2 (SHA-256, 600,000 iterations).</p>
+        </div>
+
+        <div class="option-row autowipe-row">
+          <label class="checkbox-label" for="screen-autowipe-select">
+            <span>⏱ Screen auto-wipe after viewing:</span>
+          </label>
+          <select class="select-control autowipe-select" id="screen-autowipe-select">
+            <option value="0" selected>Off (keep open)</option>
+            <option value="30">30 seconds</option>
+            <option value="60">60 seconds</option>
+            <option value="120">2 minutes</option>
+            <option value="300">5 minutes</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Controls & Submit Row -->
+      <div class="controls-row">
+        <div class="dropdown-group">
+          <select class="select-control" id="max-views-select" aria-label="Purge after views">
+            <option value="1">1 view (burn on read)</option>
+            <option value="2">2 views</option>
+            <option value="5">5 views</option>
+            <option value="10">10 views</option>
+            <option value="25">25 views</option>
+            <option value="100">100 views</option>
+          </select>
+
+          <select class="select-control" id="ttl-select" aria-label="Expiration duration">
+            <option value="300">5 minutes</option>
+            <option value="3600">1 hour</option>
+            <option value="86400" selected>24 hours</option>
+            <option value="259200">3 days</option>
+            <option value="604800">7 days</option>
+          </select>
+        </div>
+
+        <button type="button" class="btn-primary" id="encrypt-btn">
+          <span id="encrypt-btn-label">Create Note</span>
+        </button>
+      </div>
+
+      <p class="lifecycle-note" id="lifecycle-note">
+        The note will expire and be destroyed after <strong>1 view</strong>.
+      </p>
+
+    </section>
+
+    <!-- ═══ SHARE RESULT PANEL ═══ -->
+    <section id="share-panel" class="composer-box" aria-label="Share Link Ready">
+      
+      <div class="share-banner">
+        <div class="share-banner-icon">✓</div>
+        <div class="share-banner-text">
+          <h3>Your encrypted note is ready</h3>
+          <p>Share this secret link. Decryption happens locally in the recipient's browser.</p>
+        </div>
+      </div>
+
+      <div class="url-box">
+        <input type="text" class="url-input" id="share-url" readonly />
+        <button type="button" class="btn-primary" id="copy-url-btn">Copy Link</button>
+      </div>
+
+      <div class="qr-toggle-row">
+        <button type="button" class="btn-secondary" id="toggle-qr-btn">Show QR Code</button>
+        <button type="button" class="btn-secondary" id="check-status-btn">Check Note Status</button>
+      </div>
+
+      <!-- In-Browser QR Code Mount -->
+      <div id="qr-container" class="qr-wrapper" style="display: none;">
+        <div id="qr-mount" class="qr-mount"></div>
+      </div>
+
+      <!-- Anonymous Read Receipt Tracker Box -->
+      <div id="status-container" class="status-box" style="display: none;">
+        <div class="status-box-header">
+          <span class="status-box-title">Anonymous Read Receipt Tracker</span>
+          <span id="status-badge" class="badge-status unread">UNREAD</span>
+        </div>
+        <p class="status-detail-text" id="status-detail">Checking status with backend...</p>
+      </div>
+
+      <div class="details-grid">
+        <div class="details-card">
+          <div class="details-card-label">Allowed Views</div>
+          <div class="details-card-value" id="meta-views">1 view</div>
+        </div>
+        <div class="details-card">
+          <div class="details-card-label">Expires At</div>
+          <div class="details-card-value" id="meta-expires">—</div>
+        </div>
+      </div>
+
+      <div class="share-actions-row">
+        <button type="button" class="btn-secondary" id="new-note-btn">+ Create Another</button>
+        <button type="button" class="btn-danger" id="burn-now-btn">Destroy Note Now</button>
+      </div>
+
+    </section>
+
+    <!-- ═══ VIEW / DECRYPT PANEL ═══ -->
+    <section id="view-panel" class="composer-box" aria-label="Decrypted Note View">
+      
+      <!-- Anti-Bot Interstitial Screen (Feature A) -->
+      <div id="view-interstitial" class="state-view" style="display: none;">
+        <div class="state-view-title" id="interstitial-title">Encrypted Note Received</div>
+        <p class="state-view-desc" id="interstitial-desc">
+          Click below to decrypt and read this message. If set to 1 view, it will self-destruct from the server immediately upon opening.
+        </p>
+
+        <div id="recipient-passphrase-wrap" style="display: none; max-width: 380px; margin: 1.25rem auto 1.5rem auto; text-align: left;">
+          <label for="recipient-passphrase-input" style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary); display: block; margin-bottom: 0.4rem;">
+            🔐 Passphrase required:
+          </label>
+          <input type="password" id="recipient-passphrase-input" class="text-input" placeholder="Enter passphrase to unwrap key" />
+          <p class="input-hint">The sender protected this secret with a secondary passphrase.</p>
+        </div>
+
+        <button type="button" class="btn-primary" id="reveal-btn" style="padding: 0.75rem 1.75rem; font-size: 1rem; margin: 0 auto;">
+          Decrypt &amp; Read Message
+        </button>
+      </div>
+
+      <!-- Loading State -->
+      <div id="view-loading" class="state-view" style="display: none;">
+        <div class="state-view-icon">⏳</div>
+        <div class="state-view-title">Decrypting note...</div>
+        <p class="state-view-desc">Retrieving ciphertext and decrypting locally in your browser.</p>
+      </div>
+
+      <!-- Error State -->
+      <div id="view-error" class="state-view" style="display: none;">
+        <div class="state-view-icon">💨</div>
+        <div class="state-view-title" id="view-error-title">Note not found</div>
+        <p class="state-view-desc" id="view-error-desc">
+          This note has already been read, destroyed, or has expired.
+        </p>
+        <a href="/" class="btn-secondary">Create a new note</a>
+      </div>
+
+      <!-- Success Decrypted Content -->
+      <div id="view-success" style="display: none;">
+        
+        <!-- Live Burn Timer Banner (Feature C) -->
+        <div id="burn-timer-banner" class="burn-timer-banner" style="display: none;">
+          <span class="burn-timer-icon">⏱</span>
+          <span class="burn-timer-text" id="burn-timer-text">Auto-wiping screen in 30s to prevent shoulder-surfing...</span>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.75rem;">
+          <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--text-bright);" id="view-title">Decrypted Content</h2>
+          <span style="font-size: 0.8rem; color: var(--brand-cyan); font-weight: 500;" id="view-views-badge">
+            <span id="view-views-left">Burned on read</span>
+          </span>
+        </div>
+
+        <!-- Decrypted Text Section -->
+        <div id="decrypted-text-section">
+          <div class="decrypted-card">
+            <pre id="decrypted-text" tabindex="0"></pre>
+          </div>
+
+          <div class="decrypted-actions-row">
+            <button type="button" class="btn-secondary" id="copy-decrypted-btn">Copy Text</button>
+            <div class="decrypted-subactions">
+              <button type="button" class="btn-danger" id="receiver-destroy-btn">Destroy Note</button>
+              <a href="/" class="btn-primary" style="text-decoration: none;">Create New Note</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Decrypted File Section (Single or Multi-File Bundle) -->
+        <div id="decrypted-file-section" style="display: none;">
+          <div id="decrypted-files-container"></div>
+
+          <div class="decrypted-actions-row file-actions">
+            <span style="font-size: 0.8rem; color: var(--text-muted);">
+              Decrypted locally in browser. File(s) wiped from server memory.
+            </span>
+            <div class="decrypted-subactions">
+              <button type="button" class="btn-danger" id="receiver-destroy-btn-file">Destroy Note</button>
+              <a href="/" class="btn-secondary" style="text-decoration: none;">Create New Note</a>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- ─── FOOTER ─── -->
+  <footer class="app-footer" role="contentinfo">
+    <nav class="footer-nav" aria-label="Site Navigation">
+      <a href="/" class="footer-nav-link active">/home</a>
+      <span class="footer-nav-separator">/</span>
+      <a href="/about" class="footer-nav-link">/about</a>
+    </nav>
+    <p class="footer-subtext">
+      OnceFlash © 2026 | Zero-Knowledge Encrypted Messenger &bull; Burn-on-Read
+    </p>
+  </footer>
+
+</div>
+
+<!-- Toast Feedback Container -->
+<div id="toast-container" role="status" aria-live="polite"></div>
+
+<!-- QR Generator and Application Script -->
+<script src="/qrcode.js"></script>
+<script type="module" src="/app.js"></script>
+
+</body>
+</html>
