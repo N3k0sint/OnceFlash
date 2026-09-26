@@ -50,6 +50,17 @@ class Settings(BaseSettings):
     rate_limit_read: str = "60/minute"
     log_level: str = "INFO"
 
+    @field_validator("redis_url", "upstash_redis_url", mode="before")
+    @classmethod
+    def clean_redis_url(cls, v):
+        if not v or not isinstance(v, str):
+            return v
+        v = v.strip()
+        for prefix in ("REDIS_URL=", "UPSTASH_REDIS_URL="):
+            if v.startswith(prefix):
+                v = v[len(prefix):].strip()
+        return v.strip("\"'")
+
     @field_validator("allowed_origins", mode="before")
     @classmethod
     def parse_allowed_origins(cls, v):
@@ -188,18 +199,30 @@ class StorageManager:
         self.lua_read_and_burn = None
 
     async def init(self, redis_url: str):
-        if redis_url.startswith("memory://"):
+        if not redis_url:
+            self.is_redis = False
+            return
+
+        clean_url = redis_url.strip()
+        for prefix in ("REDIS_URL=", "UPSTASH_REDIS_URL="):
+            if clean_url.startswith(prefix):
+                clean_url = clean_url[len(prefix):].strip()
+        clean_url = clean_url.strip("\"'")
+
+        if clean_url.startswith("memory://"):
             logger.info("Using built-in in-memory ephemeral storage")
             self.is_redis = False
             return
 
         try:
-            logger.info("Connecting to Redis at %s", redis_url)
+            import re
+            masked_url = re.sub(r"://([^:]+):([^@]+)@", r"://\1:***@", clean_url)
+            logger.info("Connecting to Redis at %s", masked_url)
             client = aioredis.from_url(
-                redis_url,
+                clean_url,
                 decode_responses=False,
-                socket_connect_timeout=3,
-                socket_timeout=3,
+                socket_connect_timeout=5,
+                socket_timeout=5,
                 health_check_interval=30,
             )
             await client.ping()
