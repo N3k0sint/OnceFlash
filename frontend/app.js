@@ -148,7 +148,12 @@ function toast(message, type = "info", duration = 3200) {
   const el = document.createElement("div");
   el.className = `toast toast-${type}`;
   const icon = type === "success" ? "✓" : type === "error" ? "✕" : "ℹ";
-  el.innerHTML = `<span>${icon}</span><span>${escapeText(message)}</span>`;
+  const iconSpan = document.createElement("span");
+  iconSpan.textContent = icon;
+  const msgSpan = document.createElement("span");
+  msgSpan.textContent = message;
+  el.appendChild(iconSpan);
+  el.appendChild(msgSpan);
   container.appendChild(el);
 
   setTimeout(() => {
@@ -239,7 +244,18 @@ function updateLifecycleCaption() {
   const viewsText = views === "1" ? "1 view" : `${views} views`;
   const ttlText = ttlSelect.options[ttlSelect.selectedIndex].text.toLowerCase();
 
-  lifecycleNote.innerHTML = `The note will expire and be destroyed after <strong>${viewsText}</strong> or <strong>${ttlText}</strong>.`;
+  const strongViews = document.createElement("strong");
+  strongViews.textContent = viewsText;
+  const strongTtl = document.createElement("strong");
+  strongTtl.textContent = ttlText;
+
+  lifecycleNote.replaceChildren(
+    document.createTextNode("The note will expire and be destroyed after "),
+    strongViews,
+    document.createTextNode(" or "),
+    strongTtl,
+    document.createTextNode(".")
+  );
 }
 
 if (maxViewsSelect) maxViewsSelect.addEventListener("change", updateLifecycleCaption);
@@ -265,12 +281,12 @@ function renderFileList() {
   if (!fileListPreview) return;
   if (attachedFiles.length === 0) {
     fileListPreview.style.display = "none";
-    fileListPreview.innerHTML = "";
+    fileListPreview.replaceChildren();
     return;
   }
 
   fileListPreview.style.display = "flex";
-  fileListPreview.innerHTML = "";
+  fileListPreview.replaceChildren();
 
   let totalBytes = 0;
   attachedFiles.forEach((item, idx) => {
@@ -278,14 +294,41 @@ function renderFileList() {
     const safeName = sanitizeFilename(item.file.name);
     const itemEl = document.createElement("div");
     itemEl.className = "file-chip-item";
-    itemEl.innerHTML = `
-      <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
-        <span>${getFileIcon(safeName)}</span>
-        <strong style="word-break: break-all; color: var(--text-bright);">${escapeText(safeName)}</strong>
-        <span style="font-size: 0.78rem; color: var(--text-muted);">(${formatBytes(item.file.size)})</span>
-      </div>
-      <button type="button" class="btn-danger" data-idx="${idx}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; flex-shrink: 0;">Remove</button>
-    `;
+
+    const infoWrap = document.createElement("div");
+    infoWrap.style.display = "flex";
+    infoWrap.style.alignItems = "center";
+    infoWrap.style.gap = "8px";
+    infoWrap.style.minWidth = "0";
+
+    const iconSpan = document.createElement("span");
+    iconSpan.textContent = getFileIcon(safeName);
+
+    const nameStrong = document.createElement("strong");
+    nameStrong.style.wordBreak = "break-all";
+    nameStrong.style.color = "var(--text-bright)";
+    nameStrong.textContent = safeName;
+
+    const sizeSpan = document.createElement("span");
+    sizeSpan.style.fontSize = "0.78rem";
+    sizeSpan.style.color = "var(--text-muted)";
+    sizeSpan.textContent = ` (${formatBytes(item.file.size)})`;
+
+    infoWrap.appendChild(iconSpan);
+    infoWrap.appendChild(nameStrong);
+    infoWrap.appendChild(sizeSpan);
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "btn-danger";
+    removeBtn.setAttribute("data-idx", String(idx));
+    removeBtn.style.padding = "0.25rem 0.5rem";
+    removeBtn.style.fontSize = "0.75rem";
+    removeBtn.style.flexShrink = "0";
+    removeBtn.textContent = "Remove";
+
+    itemEl.appendChild(infoWrap);
+    itemEl.appendChild(removeBtn);
     fileListPreview.appendChild(itemEl);
   });
 
@@ -514,7 +557,10 @@ if (toggleQrBtn && qrMount && qrContainer) {
     if (window.QRCodeGenerator && typeof window.QRCodeGenerator.generateSVG === "function") {
       try {
         const svgMarkup = window.QRCodeGenerator.generateSVG(createdShareUrl, 4);
-        qrMount.innerHTML = svgMarkup;
+        const parser = new DOMParser();
+        const svgDoc = parser.parseFromString(svgMarkup, "image/svg+xml");
+        const svgEl = svgDoc.documentElement;
+        qrMount.replaceChildren(svgEl);
         qrContainer.style.display = "block";
         toggleQrBtn.textContent = "Hide QR Code";
       } catch (err) {
@@ -678,11 +724,13 @@ function purgeDecryptedMemory() {
 
   if (textEl) textEl.textContent = "[WIPED FOR SECURITY]";
   if (fileContainer) {
-    fileContainer.innerHTML = `
-      <div style="padding: 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.9rem;">
-        🛡️ File attachment memory has been purged to prevent unauthorized exposure.
-      </div>
-    `;
+    const purgeMsg = document.createElement("div");
+    purgeMsg.style.padding = "1.5rem";
+    purgeMsg.style.textAlign = "center";
+    purgeMsg.style.color = "var(--text-muted)";
+    purgeMsg.style.fontSize = "0.9rem";
+    purgeMsg.textContent = "File attachment memory has been purged to prevent unauthorized exposure.";
+    fileContainer.replaceChildren(purgeMsg);
   }
   if (banner && textElBanner) {
     banner.style.background = "rgba(248, 81, 73, 0.15)";
@@ -823,7 +871,7 @@ async function initViewPage() {
           : [{ filename: payload.filename, mime: payload.mime, size: payload.size, data: payload.data }];
 
         if (fileContainer) {
-          fileContainer.innerHTML = "";
+          fileContainer.replaceChildren();
           filesToRender.forEach((f) => {
             const safeName = sanitizeFilename(f.filename);
             const safeMime = f.mime || "application/octet-stream";
@@ -835,32 +883,59 @@ async function initViewPage() {
             const blob = dataUrlToBlob(f.data, safeMime);
             const blobUrl = URL.createObjectURL(blob);
 
-            const isSafeImage = safeMime.startsWith("image/") && safeMime !== "image/svg+xml";
+            const header = document.createElement("div");
+            header.className = "file-display-header";
 
-            let imageHtml = "";
+            const iconEl = document.createElement("div");
+            iconEl.className = "file-display-icon";
+            iconEl.textContent = getFileIcon(safeName);
+
+            const metaEl = document.createElement("div");
+            metaEl.className = "file-display-meta";
+
+            const nameEl = document.createElement("div");
+            nameEl.className = "file-display-name";
+            nameEl.textContent = safeName;
+
+            const subEl = document.createElement("div");
+            subEl.className = "file-display-sub";
+            const sizeSpan = document.createElement("span");
+            sizeSpan.textContent = sizeText;
+            const bullet = document.createTextNode(" • ");
+            const mimeSpan = document.createElement("span");
+            mimeSpan.textContent = safeMime;
+            subEl.appendChild(sizeSpan);
+            subEl.appendChild(bullet);
+            subEl.appendChild(mimeSpan);
+
+            metaEl.appendChild(nameEl);
+            metaEl.appendChild(subEl);
+
+            const downloadLink = document.createElement("a");
+            downloadLink.href = blobUrl;
+            downloadLink.download = safeName;
+            downloadLink.className = "btn-primary";
+            downloadLink.style.textDecoration = "none";
+            downloadLink.style.marginLeft = "auto";
+            downloadLink.textContent = "Download";
+
+            header.appendChild(iconEl);
+            header.appendChild(metaEl);
+            header.appendChild(downloadLink);
+            card.appendChild(header);
+
+            const isSafeImage = safeMime.startsWith("image/") && safeMime !== "image/svg+xml";
             if (isSafeImage) {
-              imageHtml = `
-                <div class="file-preview-img-container">
-                  <img src="${blobUrl}" class="file-preview-img" alt="Decrypted preview" />
-                </div>
-              `;
+              const imgWrap = document.createElement("div");
+              imgWrap.className = "file-preview-img-container";
+              const img = document.createElement("img");
+              img.src = blobUrl;
+              img.className = "file-preview-img";
+              img.alt = "Decrypted preview";
+              imgWrap.appendChild(img);
+              card.appendChild(imgWrap);
             }
 
-            card.innerHTML = `
-              <div class="file-display-header">
-                <div class="file-display-icon">${getFileIcon(safeName)}</div>
-                <div class="file-display-meta">
-                  <div class="file-display-name">${escapeText(safeName)}</div>
-                  <div class="file-display-sub">
-                    <span>${sizeText}</span> &bull; <span>${escapeText(safeMime)}</span>
-                  </div>
-                </div>
-                <a href="${blobUrl}" download="${escapeText(safeName)}" class="btn-primary" style="text-decoration: none; margin-left: auto;">
-                  ⬇ Download
-                </a>
-              </div>
-              ${imageHtml}
-            `;
             fileContainer.appendChild(card);
           });
         }
