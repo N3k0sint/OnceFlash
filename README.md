@@ -1,4 +1,4 @@
-# ⚡ OnceFlash
+# OnceFlash
 
 > **Zero-knowledge, client-side encrypted, self-destructing notes and file sharing.**
 > 
@@ -6,27 +6,27 @@
 
 ---
 
-## 📖 What is OnceFlash?
+## What is OnceFlash?
 
 **OnceFlash** is a high-performance, zero-knowledge ephemeral messenger and secure file-sharing application inspired by *Cryptgeon* and *PrivNote*.
 
 It is built for transmitting confidential credentials, passwords, private API keys, and sensitive documents that **automatically burn and self-destruct** after a specified number of views or a time-to-live (TTL) expiration.
 
 ### Core Features:
-- 🔐 **Zero-Knowledge Architecture**: End-to-end client-side encryption with 256-bit AES-GCM and fresh 96-bit CSPRNG initialization vectors (`window.crypto.subtle`).
-- 🔗 **RFC 3986 §3.5 Hash Fragment Privacy**: Decryption keys reside exclusively in the URL `#fragment` (`#<id>:<key>`). Browsers never transmit hash fragments over HTTP, ensuring servers and edge proxies never see or log keys.
-- 🌓 **Dark & Light Mode (1-Click Icon Toggle)**: Modern, distraction-free aesthetic with an electric cyan/mint theme, complete with instant theme toggling and system preference persistence (`localStorage` + `prefers-color-scheme`).
-- 📁 **Multi-File Bundling & Drag-and-Drop**: Encrypt and share multiple confidential files (up to 2 MB) in a single self-destructing envelope.
-- 👁️ **Read Receipts & Status Tracking**: Creators can check whether a secret is `WAITING`, `OPENED`, or `DESTROYED` without compromising zero-knowledge guarantees via blind status tokens.
-- 💣 **Atomic Burn-on-Read & Dual Destruction**: Purges secrets from server RAM immediately upon view expiration. Both sender and recipient can explicitly trigger early destruction.
-- 🛡️ **Secondary Passphrase Protection**: Optional client-side passphrase layer derived with PBKDF2 (100,000 iterations) for defense-in-depth against unauthorized device access.
-- ⏱️ **Configurable Screen Auto-Wipe**: Recipient view automatically wipes decrypted content from memory and screen after 30s, 1m, or 5m to protect against shoulder surfing.
-- 📱 **Client-Side Offline QR Generator**: 100% in-browser SVG QR code creation with zero third-party network requests.
-- ⚡ **Zero-Setup Standalone Mode**: Built-in atomic in-memory engine for instant local development without installing Redis.
+- **Zero-Knowledge Architecture**: End-to-end client-side encryption with 256-bit AES-GCM and fresh 96-bit CSPRNG initialization vectors (`window.crypto.subtle`).
+- **RFC 3986 §3.5 Hash Fragment Privacy**: Decryption keys reside exclusively in the URL `#fragment` (`#<id>:<key>`). Browsers never transmit hash fragments over HTTP, ensuring servers and edge proxies never see or log keys.
+- **Dark & Light Mode (1-Click Icon Toggle)**: Modern, distraction-free aesthetic with an electric cyan/mint theme, complete with instant theme toggling and system preference persistence (`localStorage` + `prefers-color-scheme`).
+- **Multi-File Bundling & Drag-and-Drop**: Encrypt and share multiple confidential files (up to 2 MB) in a single self-destructing envelope.
+- **Read Receipts & Status Tracking**: Creators can check whether a secret is `WAITING`, `OPENED`, or `DESTROYED` without compromising zero-knowledge guarantees via blind status tokens.
+- **Atomic Burn-on-Read & Dual Destruction**: Purges secrets from server RAM immediately upon view expiration. Both sender and recipient can explicitly trigger early destruction.
+- **Secondary Passphrase Protection**: Optional client-side passphrase layer derived with PBKDF2 (100,000 iterations) for defense-in-depth against unauthorized device access.
+- **Configurable Screen Auto-Wipe**: Recipient view automatically wipes decrypted content from memory and screen after 30s, 1m, or 5m to protect against shoulder surfing.
+- **Client-Side Offline QR Generator**: 100% in-browser SVG QR code creation with zero third-party network requests.
+- **Zero-Setup Standalone Mode**: Built-in atomic in-memory engine for instant local development without installing Redis.
 
 ---
 
-## 🚀 Quick Start Guide
+## Quick Start Guide
 
 You can run OnceFlash in **two ways**:
 - **Method 1: Local Development (Instant Runner — Zero setup)**
@@ -34,14 +34,14 @@ You can run OnceFlash in **two ways**:
 
 ---
 
-### Method 1: Local Standalone ⚡
+### Method 1: Local Standalone
 
 Runs locally with Python 3.10+ using OnceFlash's built-in **atomic in-memory ephemeral store** (no database installation needed).
 
 #### 1. Clone the repository
 ```bash
-git clone https://github.com/your-username/onceflash.git
-cd onceflash
+git clone https://github.com/N3k0sint/OnceFlash.git
+cd OnceFlash
 ```
 
 #### 2. Run the application
@@ -52,11 +52,11 @@ python run_local.py
 
 #### 3. Open in your browser
 Navigate to:
-👉 **[http://localhost:8000](http://localhost:8000)**
+**[http://localhost:8000](http://localhost:8000)**
 
 ---
 
-### Method 2: Deploy to Vercel ▲
+### Method 2: Deploy to Vercel
 
 OnceFlash is pre-configured for instant deployment on **Vercel** with serverless Python execution and Edge CDN static asset delivery.
 
@@ -71,14 +71,14 @@ Because Vercel executes on stateless, distributed serverless functions across gl
    git add .
    git commit -m "Deploy OnceFlash to Vercel"
    git branch -M main
-   git remote add origin https://github.com/your-username/onceflash.git
+   git remote add origin https://github.com/N3k0sint/OnceFlash.git
    git push -u origin main
    ```
 
 2. **Import into Vercel**:
    - Go to your [Vercel Dashboard](https://vercel.com).
    - Click **"Add New..."** → **"Project"**.
-   - Select your `onceflash` GitHub repository and click **Import**.
+   - Select your `OnceFlash` GitHub repository and click **Import**.
 
 3. **Add Upstash Redis**:
    - In the Vercel dashboard for your project, go to the **Storage** tab and click **Create Database** → **Serverless Redis (Upstash)** (or sign up at [upstash.com](https://upstash.com) to create a free database).
@@ -95,7 +95,7 @@ Because Vercel executes on stateless, distributed serverless functions across gl
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 OnceFlash/
@@ -120,12 +120,13 @@ OnceFlash/
 ├── vercel.json              # Vercel configuration (routes, edge security headers & CSP)
 ├── .env.example             # Configuration template
 ├── .gitignore               # Standard git ignore rules
+├── LICENSE                  # GNU General Public License v3.0 (GPLv3)
 └── README.md                # Documentation & security architecture
 ```
 
 ---
 
-## 🛡️ Security Architecture & Compliance
+## Security Architecture & Compliance
 
 OnceFlash is engineered under **SSDev (Secure Software Development)** and aligned with **NIST SP 800-218 (SSDF)** and the **OWASP Top 10**:
 
@@ -140,7 +141,7 @@ OnceFlash is engineered under **SSDev (Secure Software Development)** and aligne
 
 ---
 
-## ⚙️ Configuration Reference
+## Configuration Reference
 
 All settings can be configured via environment variables or a `.env` file:
 
@@ -155,7 +156,7 @@ All settings can be configured via environment variables or a `.env` file:
 
 ---
 
-## 🔒 Production Hosting Checklist
+## Production Hosting Checklist
 
 When deploying to Vercel:
 1. **Set Upstash Redis**: Add `UPSTASH_REDIS_URL` in Vercel Environment Variables so secrets persist across serverless instances and self-destruct atomically.
@@ -165,7 +166,7 @@ When deploying to Vercel:
 
 ---
 
-## 📄 License
+## License
 
 OnceFlash © 2026 | Zero-Knowledge Encrypted Messenger &bull; Burn-on-Read  
 Licensed under the [GNU General Public License v3.0 (GPLv3)](LICENSE). Free and open-source forever.
