@@ -24,7 +24,7 @@ import {
   parseShareHash,
 } from "./crypto.js";
 
-import { createPaste, fetchPaste, deletePaste, checkPasteStatus } from "./api.js";
+import { createPaste, fetchPaste, deletePaste, checkPasteStatus, fetchPasteInfo } from "./api.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Security Sanitization Helpers (OWASP A03: Injection & Path Traversal)
@@ -135,6 +135,39 @@ function formatBytes(b) {
   if (b < 1024) return `${b} B`;
   if (b < 1024 ** 2) return `${(b / 1024).toFixed(1)} KB`;
   return `${(b / 1024 ** 2).toFixed(2)} MB`;
+}
+
+function formatTtl(sec) {
+  if (!sec || sec <= 0) return "expired";
+  if (sec >= 86400) {
+    const days = Math.floor(sec / 86400);
+    const hrs = Math.floor((sec % 86400) / 3600);
+    return hrs > 0 ? `${days}d ${hrs}h` : `${days} day${days > 1 ? "s" : ""}`;
+  }
+  if (sec >= 3600) {
+    const hrs = Math.floor(sec / 3600);
+    const mins = Math.floor((sec % 3600) / 60);
+    return mins > 0 ? `${hrs}h ${mins}m` : `${hrs} hour${hrs > 1 ? "s" : ""}`;
+  }
+  if (sec >= 60) {
+    return `${Math.floor(sec / 60)} min`;
+  }
+  return `${sec} sec`;
+}
+
+function formatAutowipe(sec) {
+  const n = parseInt(sec, 10);
+  if (!n || n <= 0) return "Off (keep open)";
+  if (n === 30) return "30 seconds";
+  if (n === 60) return "60 seconds";
+  if (n === 120) return "2 minutes";
+  if (n === 300) return "5 minutes";
+  if (n >= 60) {
+    const m = Math.floor(n / 60);
+    const s = n % 60;
+    return s > 0 ? `${m}m ${s}s` : `${m} minute${m > 1 ? "s" : ""}`;
+  }
+  return `${n} seconds`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -485,7 +518,7 @@ if (encryptBtn) {
       }
 
       // 5. Transmit ONLY ciphertext to backend (zero-knowledge)
-      const result = await createPaste(ciphertext, { maxViews, ttlSeconds, contentType });
+      const result = await createPaste(ciphertext, { maxViews, ttlSeconds, contentType, autowipe: autowipeSec });
 
       // 6. Build zero-knowledge share URL (key fragment never sent over wire)
       const shareUrl = buildShareUrl(result.id, rawKeyB64, passphraseMeta);
@@ -525,7 +558,7 @@ function showShareScreen(url, maxViews, expiresAt, isProtected) {
 
   if (shareUrlInput) shareUrlInput.value = url;
   if (metaViewsEl) {
-    const protTag = isProtected ? " 🔐 (Passphrase protected)" : "";
+    const protTag = isProtected ? " (Passphrase protected)" : "";
     metaViewsEl.textContent = (maxViews === 1) ? `1 view (burns on read)${protTag}` : `${maxViews} views${protTag}`;
   }
 
@@ -775,6 +808,30 @@ async function initViewPage() {
   }
 
   const { id, isPassphraseProtected } = parsed;
+
+  const viewsEl = document.getElementById("interstitial-views");
+  const expiresEl = document.getElementById("interstitial-expires");
+  const burnNoticeEl = document.getElementById("interstitial-burn-notice");
+
+  // Fetch non-destructive envelope metadata before revealing
+  fetchPasteInfo(id)
+    .then((info) => {
+      if (viewsEl) {
+        viewsEl.textContent = info.views_left <= 1 ? "1 view (burn on read)" : `${info.views_left} views remaining`;
+      }
+      if (expiresEl) {
+        expiresEl.textContent = `in ${formatTtl(info.ttl_left)}`;
+      }
+      if (burnNoticeEl) {
+        burnNoticeEl.textContent = formatAutowipe(info.autowipe);
+      }
+    })
+    .catch(() => {
+      renderError(
+        "Note not found",
+        "This note has already been read, destroyed, or has expired."
+      );
+    });
 
   // Show Anti-Bot Interstitial card (Feature A)
   // Crawler bots will stop here without fetching/burning the note!

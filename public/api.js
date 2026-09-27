@@ -17,7 +17,7 @@ const API_BASE = "/api";
  * @param {string} opts.contentType  'text' or 'file'
  * @returns {Promise<{ id: string, expires_at: number }>}
  */
-export async function createPaste(ciphertext, { maxViews = 1, ttlSeconds = 86400, contentType = "text" } = {}) {
+export async function createPaste(ciphertext, { maxViews = 1, ttlSeconds = 86400, contentType = "text", autowipe = 0 } = {}) {
   const response = await fetch(`${API_BASE}/paste`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -26,6 +26,7 @@ export async function createPaste(ciphertext, { maxViews = 1, ttlSeconds = 86400
       max_views: maxViews,
       ttl_seconds: ttlSeconds,
       content_type: contentType,
+      autowipe,
     }),
     // Credentials omitted — no session cookies needed for zero-knowledge model
     credentials: "omit",
@@ -110,3 +111,29 @@ export async function checkPasteStatus(pasteId, token) {
 
   return response.json();
 }
+
+/**
+ * Retrieve non-destructive envelope metadata before revealing (zero-knowledge).
+ * @param {string} pasteId
+ * @returns {Promise<{ views_left: number, ttl_left: number, created_at: number }>}
+ */
+export async function fetchPasteInfo(pasteId) {
+  const url = `${API_BASE}/paste/${encodeURIComponent(pasteId)}/info`;
+  const response = await fetch(url, {
+    method: "GET",
+    credentials: "omit",
+    cache: "no-store",
+    headers: { "Accept": "application/json" },
+  });
+
+  if (response.status === 404) {
+    throw new Error("Note not found — it may have been burned or expired.");
+  }
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: "Failed to retrieve note details" }));
+    throw new Error(err.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+

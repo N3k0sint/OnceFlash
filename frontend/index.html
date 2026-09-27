@@ -110,7 +110,7 @@
 
         <div class="option-row autowipe-row">
           <label class="checkbox-label" for="screen-autowipe-select">
-            <span>⏱ Screen auto-wipe after viewing:</span>
+            <span>Screen auto-wipe after viewing:</span>
           </label>
           <select class="select-control autowipe-select" id="screen-autowipe-select">
             <option value="0" selected>Off (keep open)</option>
@@ -214,12 +214,28 @@
       <div id="view-interstitial" class="state-view" style="display: none;">
         <div class="state-view-title" id="interstitial-title">Encrypted Note Received</div>
         <p class="state-view-desc" id="interstitial-desc">
-          Click below to decrypt and read this message. If set to 1 view, it will self-destruct from the server immediately upon opening.
+          Click below to decrypt and read this message.
         </p>
+
+        <!-- Simple Design Details: Allowed Views, Expiration & Disappear After Open -->
+        <div class="interstitial-meta-box" id="interstitial-meta-box">
+          <div class="interstitial-meta-item">
+            <span class="interstitial-meta-label">View Limit</span>
+            <span class="interstitial-meta-val" id="interstitial-views">1 view (burn on read)</span>
+          </div>
+          <div class="interstitial-meta-item">
+            <span class="interstitial-meta-label">Expires In</span>
+            <span class="interstitial-meta-val" id="interstitial-expires">—</span>
+          </div>
+          <div class="interstitial-meta-item">
+            <span class="interstitial-meta-label">Screen Auto-Wipe</span>
+            <span class="interstitial-meta-val" id="interstitial-burn-notice">—</span>
+          </div>
+        </div>
 
         <div id="recipient-passphrase-wrap" style="display: none; max-width: 380px; margin: 1.25rem auto 1.5rem auto; text-align: left;">
           <label for="recipient-passphrase-input" style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary); display: block; margin-bottom: 0.4rem;">
-            🔐 Passphrase required:
+            Passphrase required:
           </label>
           <input type="password" id="recipient-passphrase-input" class="text-input" placeholder="Enter passphrase to unwrap key" />
           <p class="input-hint">The sender protected this secret with a secondary passphrase.</p>
@@ -232,14 +248,12 @@
 
       <!-- Loading State -->
       <div id="view-loading" class="state-view" style="display: none;">
-        <div class="state-view-icon">⏳</div>
         <div class="state-view-title">Decrypting note...</div>
         <p class="state-view-desc">Retrieving ciphertext and decrypting locally in your browser.</p>
       </div>
 
       <!-- Error State -->
       <div id="view-error" class="state-view" style="display: none;">
-        <div class="state-view-icon">💨</div>
         <div class="state-view-title" id="view-error-title">Note not found</div>
         <p class="state-view-desc" id="view-error-desc">
           This note has already been read, destroyed, or has expired.
@@ -252,7 +266,6 @@
         
         <!-- Live Burn Timer Banner (Feature C) -->
         <div id="burn-timer-banner" class="burn-timer-banner" style="display: none;">
-          <span class="burn-timer-icon">⏱</span>
           <span class="burn-timer-text" id="burn-timer-text">Auto-wiping screen in 30s to prevent shoulder-surfing...</span>
         </div>
 

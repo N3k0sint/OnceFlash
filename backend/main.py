@@ -182,6 +182,7 @@ class InMemoryStore:
                 "views_left": int(paste.get("views_left", 0)),
                 "created_at": int(paste.get("created_at", 0)),
                 "status_token": str(paste.get("status_token", "")),
+                "autowipe": int(paste.get("autowipe", 0)),
                 "ttl_left": max(0, int(exp - time.time())),
             }
 
@@ -285,7 +286,7 @@ class StorageManager:
     async def get_metadata(self, key: str) -> dict | None:
         if self.is_redis and self.redis:
             pipe = self.redis.pipeline()
-            pipe.hmget(key, ["views_left", "created_at", "status_token"])
+            pipe.hmget(key, ["views_left", "created_at", "status_token", "autowipe"])
             pipe.ttl(key)
             res = await pipe.execute()
             data, ttl = res[0], res[1]
@@ -294,10 +295,12 @@ class StorageManager:
             views_left = int(data[0].decode() if isinstance(data[0], bytes) else data[0])
             created_at = int(data[1].decode() if isinstance(data[1], bytes) else (data[1] or 0))
             status_token = data[2].decode() if isinstance(data[2], bytes) else (data[2] or "")
+            autowipe = int(data[3].decode() if isinstance(data[3], bytes) else (data[3] or 0)) if len(data) > 3 and data[3] is not None else 0
             return {
                 "views_left": views_left,
                 "created_at": created_at,
                 "status_token": status_token,
+                "autowipe": autowipe,
                 "ttl_left": max(0, ttl),
             }
         else:
@@ -479,6 +482,12 @@ class CreatePasteRequest(BaseModel):
         default="text",
         description="Content type hint (text or file)",
     )
+    autowipe: int = Field(
+        default=0,
+        ge=0,
+        le=86_400,
+        description="Screen auto-wipe countdown timer in seconds (0 = off)",
+    )
 
     @field_validator("ciphertext")
     @classmethod
@@ -575,6 +584,7 @@ async def create_paste(
                 "created_at": now,
                 "content_type": payload.content_type,
                 "status_token": status_token,
+                "autowipe": payload.autowipe,
             },
             ttl_seconds=payload.ttl_seconds,
         )
@@ -726,6 +736,28 @@ async def check_paste_status(request: Request, paste_id: str, token: str) -> dic
     return {
         "status": "destroyed",
         "message": "destroyed before anyone opened it",
+    }
+
+
+@app.get(
+    "/api/paste/{paste_id}/info",
+    summary="Get non-destructive envelope metadata for receiver (zero-knowledge)",
+)
+@limiter.limit(settings.rate_limit_read)
+async def get_paste_info(request: Request, paste_id: str) -> dict:
+    if not paste_id or len(paste_id) > 32 or not all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" for c in paste_id):
+        raise HTTPException(status_code=400, detail="Invalid paste ID")
+
+    redis_key = f"paste:{paste_id}"
+    meta = await storage.get_metadata(redis_key)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Note not found or already burned")
+
+    return {
+        "views_left": meta["views_left"],
+        "ttl_left": meta["ttl_left"],
+        "created_at": meta["created_at"],
+        "autowipe": meta.get("autowipe", 0),
     }
 
 
