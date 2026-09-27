@@ -112,7 +112,7 @@
           <label class="checkbox-label" for="screen-autowipe-select">
             <span>Screen auto-wipe after viewing:</span>
           </label>
-          <select class="select-control autowipe-select" id="screen-autowipe-select">
+          <select class="select-control autowipe-select" id="screen-autowipe-select" autocomplete="off">
             <option value="0" selected>Off (keep open)</option>
             <option value="30">30 seconds</option>
             <option value="60">60 seconds</option>
@@ -197,6 +197,10 @@
         <div class="details-card">
           <div class="details-card-label">Expires At</div>
           <div class="details-card-value" id="meta-expires">—</div>
+        </div>
+        <div class="details-card">
+          <div class="details-card-label">Screen Auto-Wipe</div>
+          <div class="details-card-value" id="meta-autowipe">Off (keep open)</div>
         </div>
       </div>
 
@@ -331,7 +335,7 @@
 
 <!-- QR Generator and Application Script -->
 <script src="/qrcode.js"></script>
-<script type="module" src="/app.js"></script>
+<script type="module" src="/app.js?v=2.2"></script>
 
 </body>
 </html>

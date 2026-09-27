@@ -178,11 +178,15 @@ class InMemoryStore:
                 return None
             paste = self._data[key]
             exp = self._expires.get(key, 0)
+            try:
+                autowipe = int(paste.get("autowipe", 0))
+            except (ValueError, TypeError):
+                autowipe = 0
             return {
                 "views_left": int(paste.get("views_left", 0)),
                 "created_at": int(paste.get("created_at", 0)),
                 "status_token": str(paste.get("status_token", "")),
-                "autowipe": int(paste.get("autowipe", 0)),
+                "autowipe": autowipe,
                 "ttl_left": max(0, int(exp - time.time())),
             }
 
@@ -295,7 +299,11 @@ class StorageManager:
             views_left = int(data[0].decode() if isinstance(data[0], bytes) else data[0])
             created_at = int(data[1].decode() if isinstance(data[1], bytes) else (data[1] or 0))
             status_token = data[2].decode() if isinstance(data[2], bytes) else (data[2] or "")
-            autowipe = int(data[3].decode() if isinstance(data[3], bytes) else (data[3] or 0)) if len(data) > 3 and data[3] is not None else 0
+            try:
+                autowipe_val = data[3].decode() if isinstance(data[3], bytes) else data[3]
+                autowipe = int(autowipe_val) if autowipe_val else 0
+            except (ValueError, TypeError):
+                autowipe = 0
             return {
                 "views_left": views_left,
                 "created_at": created_at,
@@ -753,12 +761,18 @@ async def get_paste_info(request: Request, paste_id: str) -> dict:
     if not meta:
         raise HTTPException(status_code=404, detail="Note not found or already burned")
 
-    return {
-        "views_left": meta["views_left"],
-        "ttl_left": meta["ttl_left"],
-        "created_at": meta["created_at"],
-        "autowipe": meta.get("autowipe", 0),
-    }
+    return JSONResponse(
+        content={
+            "views_left": meta["views_left"],
+            "ttl_left": meta["ttl_left"],
+            "created_at": meta["created_at"],
+            "autowipe": meta.get("autowipe", 0),
+        },
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, private",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -772,7 +786,13 @@ if os.path.isdir(STATIC_DIR):
     async def serve_view_spa(full_path: str):
         index_file = os.path.join(STATIC_DIR, "index.html")
         if os.path.isfile(index_file):
-            return FileResponse(index_file)
+            return FileResponse(
+                index_file,
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                },
+            )
         raise HTTPException(status_code=404, detail="Page not found")
 
     @app.get("/about", include_in_schema=False)

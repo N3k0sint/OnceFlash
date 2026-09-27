@@ -431,7 +431,8 @@ if (encryptBtn) {
   encryptBtn.addEventListener("click", async () => {
     const maxViews   = maxViewsSelect ? parseInt(maxViewsSelect.value, 10) : 1;
     const ttlSeconds = ttlSelect      ? parseInt(ttlSelect.value, 10)      : 86400;
-    const autowipeSec = screenAutowipeSelect ? parseInt(screenAutowipeSelect.value, 10) : 0;
+    const selectEl   = document.getElementById("screen-autowipe-select");
+    const autowipeSec = selectEl ? (parseInt(selectEl.value, 10) || 0) : 0;
     const isFile     = (activeTab === "file");
 
     if (isFile && attachedFiles.length === 0) {
@@ -527,7 +528,7 @@ if (encryptBtn) {
       createdStatusToken = result.status_token;
 
       // Show share screen
-      showShareScreen(shareUrl, maxViews, result.expires_at, isPassphraseProtected);
+      showShareScreen(shareUrl, maxViews, result.expires_at, isPassphraseProtected, autowipeSec);
 
     } catch (err) {
       console.error("Encryption error:", err);
@@ -551,10 +552,11 @@ const statusContainer  = document.getElementById("status-container");
 const statusBadge      = document.getElementById("status-badge");
 const statusDetail     = document.getElementById("status-detail");
 
-function showShareScreen(url, maxViews, expiresAt, isProtected) {
-  const shareUrlInput = document.getElementById("share-url");
-  const metaViewsEl   = document.getElementById("meta-views");
-  const metaExpiryEl  = document.getElementById("meta-expires");
+function showShareScreen(url, maxViews, expiresAt, isProtected, autowipeSec = 0) {
+  const shareUrlInput  = document.getElementById("share-url");
+  const metaViewsEl    = document.getElementById("meta-views");
+  const metaExpiryEl   = document.getElementById("meta-expires");
+  const metaAutowipeEl = document.getElementById("meta-autowipe");
 
   if (shareUrlInput) shareUrlInput.value = url;
   if (metaViewsEl) {
@@ -567,6 +569,10 @@ function showShareScreen(url, maxViews, expiresAt, isProtected) {
     metaExpiryEl.textContent = expDate.toLocaleString(undefined, {
       dateStyle: "medium", timeStyle: "short"
     });
+  }
+
+  if (metaAutowipeEl) {
+    metaAutowipeEl.textContent = formatAutowipe(autowipeSec);
   }
 
   if (qrContainer) qrContainer.style.display = "none";
@@ -675,6 +681,7 @@ if (newNoteBtn) {
     if (notePassphraseInput) notePassphraseInput.value = "";
     if (enablePassphraseCheckbox) enablePassphraseCheckbox.checked = false;
     if (passphraseContainer) passphraseContainer.style.display = "none";
+    if (screenAutowipeSelect) screenAutowipeSelect.value = "0";
     attachedFiles = [];
     renderFileList();
     createdPasteId     = null;
