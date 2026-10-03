@@ -824,4 +824,11 @@ if os.path.isdir(STATIC_DIR):
             return FileResponse(about_file)
         raise HTTPException(status_code=404, detail="Page not found")
 
+    @app.get("/privacy", include_in_schema=False)
+    async def serve_privacy_spa():
+        privacy_file = os.path.join(STATIC_DIR, "privacy.html")
+        if os.path.isfile(privacy_file):
+            return FileResponse(privacy_file)
+        raise HTTPException(status_code=404, detail="Page not found")
+
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

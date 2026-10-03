@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy &amp; Terms — OnceFlash</title>
+  <meta name="description" content="OnceFlash Privacy Policy: Zero-knowledge architecture, zero tracking, ephemeral in-memory storage, and complete burn-on-read guarantees." />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="referrer" content="no-referrer" />
+
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/img/icon-192.png" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="/theme.js"></script>
+</head>
+<body>
+
+<div class="app-container">
+
+  <!-- ─── BRAND HEADER ─── -->
+  <header class="brand-header" role="banner">
+    <div class="brand-top-bar">
+      <a href="/" class="brand-logo-link" aria-label="OnceFlash Home">
+        <img src="/img/icon.png" alt="OnceFlash" class="brand-icon-img" width="44" height="44" />
+        <span class="brand-name">OnceFlash</span>
+      </a>
+      <button type="button" id="theme-toggle-btn" class="theme-toggle-btn" aria-label="Toggle dark/light theme" title="Toggle theme">
+        <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+        <svg class="theme-icon-moon" style="display: none;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+      </button>
+    </div>
+    <p class="brand-tagline">
+      Easily send <em>fully encrypted</em>, secure notes or files with one click.
+    </p>
+  </header>
+
+  <!-- ─── PRIVACY & TERMS CONTENT ─── -->
+  <main style="width: 100%;" role="main">
+    <section class="composer-box about-panel" aria-label="Privacy Policy and Terms of Use">
+      
+      <div class="about-header">
+        <h1 class="about-title">Privacy Policy &amp; Terms</h1>
+        <p class="about-tagline">
+          <em>OnceFlash</em> is built on a strict <strong>Zero-Knowledge</strong> architecture. Privacy is not a feature we toggle—it is mathematically enforced by end-to-end client-side cryptography.
+        </p>
+      </div>
+
+      <!-- Section 1 -->
+      <div class="about-section-block">
+        <h2 class="about-heading">1. Zero-Knowledge Cryptography</h2>
+        <p class="about-text">
+          All encryption and decryption happens exclusively inside your web browser via <code>window.crypto.subtle</code> (Web Cryptography API) using <strong>AES-256-GCM</strong>.
+        </p>
+        <p class="about-text">
+          The decryption key is embedded in the URL hash fragment (e.g. <code>#&lt;id&gt;:&lt;key&gt;</code>). In accordance with <em>RFC 3986 §3.5</em>, hash fragments are <strong>never transmitted across the network</strong> to our servers. As a result, our servers never see, possess, or store your encryption keys or plaintext notes.
+        </p>
+      </div>
+
+      <!-- Section 2 -->
+      <div class="about-section-block">
+        <h2 class="about-heading">2. Ephemeral Storage &amp; Irreversible Purge</h2>
+        <p class="about-text">
+          Ciphertext blobs are stored temporarily in volatile memory (RAM or Redis) with a strict expiration timer (TTL) set by the sender.
+        </p>
+        <ul class="about-list">
+          <li><strong>Burn-on-Read:</strong> Notes configured for 1 view are deleted atomically immediately upon retrieval using atomic server scripts to prevent double-read race conditions.</li>
+          <li><strong>Automatic Expiration:</strong> When a note reaches its view limit or expiry duration, it is permanently wiped and unrecoverable.</li>
+          <li><strong>No Backups:</strong> Ephemeral notes are never written to permanent disk storage, archives, or backup tapes.</li>
+        </ul>
+      </div>
+
+      <!-- Section 3 -->
+      <div class="about-section-block">
+        <h2 class="about-heading">3. Zero Tracking, Cookies, or Analytics</h2>
+        <p class="about-text">
+          OnceFlash does not monitor your behavior or track you across the internet:
+        </p>
+        <ul class="about-list">
+          <li><strong>No User Accounts:</strong> You never register, log in, or provide personal identification.</li>
+          <li><strong>No Cookies:</strong> We do not use persistent tracking cookies, marketing pixels, or local tracking beacons.</li>
+          <li><strong>No Third-Party Analytics:</strong> No Google Analytics, no Facebook pixels, and no surveillance scripts.</li>
+          <li><strong>No Referrer Leakage:</strong> Strict <code>Referrer-Policy: no-referrer</code> headers prevent your secret link fragment from leaking to outbound links.</li>
+        </ul>
+      </div>
+
+      <!-- Section 4 -->
+      <div class="about-section-block">
+        <h2 class="about-heading">4. Terms of Use &amp; Disclaimer</h2>
+        <p class="about-text">
+          OnceFlash is free and open-source software licensed under the <strong>GNU General Public License v3.0 (GPLv3)</strong> on an "as is" and "as available" basis, without warranties of any kind.
+        </p>
+        <div class="about-box-card">
+          <p class="about-text" style="margin-bottom: 0.5rem;">
+            <strong>User Responsibility:</strong> You are solely responsible for securely transmitting secret links to your intended recipients. Because OnceFlash is zero-knowledge, <em>lost links or keys cannot be recovered</em>, and burned messages cannot be restored by anyone under any circumstances.
+          </p>
+          <p class="about-text" style="margin-bottom: 0;">
+            <strong>Prohibited Activities:</strong> You may not use OnceFlash for distributing malicious software, conducting automated DoS attacks, or engaging in illegal activities.
+          </p>
+        </div>
+      </div>
+
+      <!-- Bottom Actions -->
+      <div style="margin-top: 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <span style="font-size: 0.85rem; color: var(--text-muted);">
+          Open Source &bull; Zero-Knowledge &bull; Client-Side Encrypted
+        </span>
+        <a href="/" class="btn-primary" style="text-decoration: none;">← Back to Home</a>
+      </div>
+
+    </section>
+  </main>
+
+  <!-- ─── FOOTER ─── -->
+  <footer class="app-footer" role="contentinfo">
+    <nav class="footer-nav" aria-label="Site Navigation">
+      <a href="/" class="footer-nav-link">/home</a>
+      <span class="footer-nav-separator">/</span>
+      <a href="/about" class="footer-nav-link">/about</a>
+      <span class="footer-nav-separator">/</span>
+      <a href="/privacy" class="footer-nav-link active">/privacy</a>
+    </nav>
+    <p class="footer-subtext">
+      OnceFlash © 2026 | Zero-Knowledge Encrypted Messenger &bull; Burn-on-Read
+    </p>
+  </footer>
+
+</div>
+
+</body>
+</html>
