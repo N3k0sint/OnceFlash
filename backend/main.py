@@ -353,7 +353,29 @@ return {fields['ciphertext'], fields['views_left'], fields['created_at']}
 # Rate Limiter (OWASP A07 — Identification & Auth / DoS prevention)
 # ──────────────────────────────────────────────────────────────────────────────
 
-limiter = Limiter(key_func=get_remote_address, default_limits=[])
+def get_client_ip(request: Request) -> str:
+    """
+    Extract client IP, taking into account X-Forwarded-For when behind a reverse proxy (e.g. Vercel).
+    """
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+    return get_remote_address(request)
+
+
+target_redis = settings.upstash_redis_url or settings.redis_url
+_is_redis = bool(target_redis and (target_redis.startswith("redis://") or target_redis.startswith("rediss://")))
+
+limiter = Limiter(
+    key_func=get_client_ip,
+    default_limits=[],
+    storage_uri=target_redis if _is_redis else None,
+    swallow_errors=True,
+    in_memory_fallback_enabled=True,
+)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # FastAPI Application
@@ -564,7 +586,7 @@ async def create_paste(
         paste_id,
         payload.ttl_seconds,
         payload.max_views,
-        get_remote_address(request),
+        get_client_ip(request),
     )
 
     return CreatePasteResponse(id=paste_id, expires_at=expires_at, status_token=status_token)
@@ -613,7 +635,7 @@ async def get_paste(request: Request, paste_id: str) -> JSONResponse:
         "Paste retrieved id=%s views_left_before=%d ip=%s",
         paste_id,
         views_left,
-        get_remote_address(request),
+        get_client_ip(request),
     )
 
     return JSONResponse(
@@ -658,7 +680,7 @@ async def delete_paste(request: Request, paste_id: str) -> Response:
     if deleted == 0:
         raise HTTPException(status_code=404, detail="Note not found or already burned")
 
-    logger.info("Paste manually deleted id=%s ip=%s", paste_id, get_remote_address(request))
+    logger.info("Paste manually deleted id=%s ip=%s", paste_id, get_client_ip(request))
     return Response(status_code=204)
 
 
