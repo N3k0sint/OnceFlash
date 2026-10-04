@@ -3,6 +3,7 @@
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index.py" },
     { "source": "/view/(.*)", "destination": "/index.html" },
+    { "source": "/room/(.*)", "destination": "/index.html" },
     { "source": "/about", "destination": "/about.html" },
     { "source": "/privacy", "destination": "/privacy.html" },
     { "source": "/(.*)", "destination": "/$1" }

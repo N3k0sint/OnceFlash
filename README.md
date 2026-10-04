@@ -20,6 +20,7 @@ It is built for transmitting confidential credentials, passwords, private API ke
 - **Read Receipts & Status Tracking**: Creators can check whether a secret is `WAITING`, `OPENED`, or `DESTROYED` without compromising zero-knowledge guarantees via blind status tokens.
 - **Atomic Burn-on-Read & Dual Destruction**: Purges secrets from server RAM immediately upon view expiration. Both sender and recipient can explicitly trigger early destruction.
 - **Secondary Passphrase Protection**: Optional client-side passphrase layer derived with PBKDF2 (100,000 iterations) for defense-in-depth against unauthorized device access.
+- **Flash Room (Ephemeral Live Chat)**: Self-destructing, end-to-end encrypted live chat session for 2 to 4 participants (5 to 20 minute sessions). Messages are held in RAM, encrypted with AES-256-GCM, and automatically purged upon timer expiry or host destruction with zero traces left behind.
 - **Configurable Screen Auto-Wipe**: Recipient view automatically wipes decrypted content from memory and screen after 30s, 1m, or 5m to protect against shoulder surfing.
 - **Client-Side Offline QR Generator**: 100% in-browser SVG QR code creation with zero third-party network requests.
 - **Zero-Setup Standalone Mode**: Built-in atomic in-memory engine for instant local development without installing Redis.

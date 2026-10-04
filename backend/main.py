@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 import redis.asyncio as aioredis
-from fastapi import FastAPI, HTTPException, Request, Response, Body
+from fastapi import FastAPI, HTTPException, Request, Response, Body, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     default_ttl_seconds: int = 86_400            # 24 h
     max_ttl_seconds: int = 7 * 86_400            # 7 days
     max_views: int = 100
+    max_active_rooms: int = 5
+    min_room_duration_seconds: int = 300         # 5 minutes
+    max_room_duration_seconds: int = 1200        # 20 minutes
+    max_room_members: int = 4
     rate_limit_create: str = "20/minute"
     rate_limit_read: str = "60/minute"
     log_level: str = "INFO"
@@ -95,6 +99,13 @@ class InMemoryStore:
         self._expires: dict[str, float] = {}
         self._receipts: dict[str, dict] = {}
         self._receipt_expires: dict[str, float] = {}
+        # Ephemeral Flash Rooms
+        self._rooms: dict[str, dict] = {}
+        self._room_expires: dict[str, float] = {}
+        self._room_messages: dict[str, list[dict]] = {}
+        self._room_members: dict[str, dict[str, float]] = {}
+        self._room_joined: dict[str, set[str]] = {}
+        self._room_joined_order: dict[str, list[str]] = {}
         self._lock = asyncio.Lock()
 
     async def ping(self):
@@ -118,6 +129,15 @@ class InMemoryStore:
         for k in expired_receipts:
             self._receipts.pop(k, None)
             self._receipt_expires.pop(k, None)
+
+        expired_rooms = [k for k, exp in self._room_expires.items() if exp <= now]
+        for k in expired_rooms:
+            self._rooms.pop(k, None)
+            self._room_expires.pop(k, None)
+            self._room_messages.pop(k, None)
+            self._room_members.pop(k, None)
+            self._room_joined.pop(k, None)
+            self._room_joined_order.pop(k, None)
 
     async def set_paste(self, key: str, mapping: dict, ttl_seconds: int):
         async with self._lock:
@@ -194,6 +214,192 @@ class InMemoryStore:
         async with self._lock:
             self._cleanup_expired()
             return self._receipts.get(key)
+
+    async def create_room(self, room_id: str, admin_token: str, duration_seconds: int, max_members: int, host_client_id: str) -> bool:
+        async with self._lock:
+            self._cleanup_expired()
+            if len(self._rooms) >= settings.max_active_rooms:
+                return False
+            now = time.time()
+            self._rooms[room_id] = {
+                "admin_token": admin_token,
+                "host_client_id": host_client_id,
+                "duration_seconds": duration_seconds,
+                "max_members": max_members,
+                "created_at": int(now),
+                "started": False,
+                "expires_at": 0,
+            }
+            # 15 min buffer to prevent unstarted abandoned rooms from consuming slots
+            self._room_expires[room_id] = now + 900
+            self._room_messages[room_id] = []
+            # Host immediately occupies 1 member slot
+            self._room_members[room_id] = {host_client_id: now}
+            self._room_joined[room_id] = {host_client_id}
+            self._room_joined_order[room_id] = [host_client_id]
+            return True
+
+    async def start_room(self, room_id: str, admin_token: str) -> dict | None:
+        async with self._lock:
+            self._cleanup_expired()
+            if room_id not in self._rooms:
+                return None
+            room = self._rooms[room_id]
+            if not secrets.compare_digest(room["admin_token"], admin_token):
+                return None
+            now = time.time()
+            if not room.get("started", False):
+                room["started"] = True
+                room["expires_at"] = int(now + room["duration_seconds"])
+                self._room_expires[room_id] = now + room["duration_seconds"]
+            return {
+                "expires_at": room["expires_at"],
+                "duration_seconds": room["duration_seconds"],
+                "ttl_left": max(0, int(self._room_expires[room_id] - now)),
+                "started": True,
+            }
+
+    async def get_room_meta(self, room_id: str) -> dict | None:
+        async with self._lock:
+            self._cleanup_expired()
+            if room_id not in self._rooms:
+                return None
+            room = self._rooms[room_id]
+            now = time.time()
+            started = room.get("started", False)
+            host_client_id = room.get("host_client_id", "")
+            ttl_left = max(0, int(self._room_expires.get(room_id, 0) - now)) if started else room["duration_seconds"]
+            joined = self._room_joined.get(room_id, set())
+            active_members = len([
+                m for m, seen in self._room_members.get(room_id, {}).items()
+                if m == host_client_id or (now - seen <= 45)
+            ])
+            return {
+                "expires_at": room["expires_at"] if started else 0,
+                "duration_seconds": room["duration_seconds"],
+                "ttl_left": ttl_left,
+                "max_members": room["max_members"],
+                "created_at": room["created_at"],
+                "active_members": max(1, active_members),
+                "total_joined": len(joined),
+                "is_full": len(joined) >= room["max_members"],
+                "started": started,
+            }
+
+    async def join_room(self, room_id: str, client_id: str) -> tuple[bool, str, dict]:
+        async with self._lock:
+            self._cleanup_expired()
+            if room_id not in self._rooms:
+                return False, "Room not found or session ended", {}
+            room = self._rooms[room_id]
+            now = time.time()
+            host_client_id = room.get("host_client_id", "")
+            members = self._room_members.setdefault(room_id, {})
+            joined = self._room_joined.setdefault(room_id, {host_client_id})
+            joined_order = self._room_joined_order.setdefault(room_id, [host_client_id])
+
+            # Check if this client has already claimed a slot
+            if client_id not in joined and client_id != host_client_id:
+                if len(joined) >= room["max_members"]:
+                    return False, "Room capacity reached. Session is locked to new participants.", {}
+                joined.add(client_id)
+                if client_id not in joined_order:
+                    joined_order.append(client_id)
+
+            guest_index = joined_order.index(client_id) if client_id in joined_order else 0
+
+            # Clean stale guest members (protect host slot)
+            stale = [m for m, seen in members.items() if m != host_client_id and m != client_id and (now - seen > 45)]
+            for m in stale:
+                members.pop(m, None)
+
+            members[client_id] = now
+            started = room.get("started", False)
+            ttl_left = max(0, int(self._room_expires.get(room_id, 0) - now)) if started else room["duration_seconds"]
+            return True, "", {
+                "expires_at": room["expires_at"] if started else 0,
+                "duration_seconds": room["duration_seconds"],
+                "ttl_left": ttl_left,
+                "max_members": room["max_members"],
+                "active_members": len([m for m, seen in members.items() if m == host_client_id or (now - seen <= 45)]),
+                "total_joined": len(joined),
+                "is_full": len(joined) >= room["max_members"],
+                "guest_index": guest_index,
+                "started": started,
+            }
+
+    async def add_room_message(self, room_id: str, sender: str, ciphertext: str, iv: str) -> dict | None:
+        async with self._lock:
+            self._cleanup_expired()
+            if room_id not in self._rooms:
+                return None
+            now = time.time()
+            msg = {
+                "sender": sender,
+                "ciphertext": ciphertext,
+                "iv": iv,
+                "timestamp": int(now),
+            }
+            msgs = self._room_messages.setdefault(room_id, [])
+            msgs.append(msg)
+            if len(msgs) > 50:
+                self._room_messages[room_id] = msgs[-50:]
+            return msg
+
+    async def get_room_messages(self, room_id: str, since_index: int, client_id: str) -> tuple[list[dict], int, dict] | None:
+        async with self._lock:
+            self._cleanup_expired()
+            if room_id not in self._rooms:
+                return None
+            now = time.time()
+            room = self._rooms[room_id]
+            host_client_id = room.get("host_client_id", "")
+            members = self._room_members.setdefault(room_id, {})
+            joined = self._room_joined.get(room_id, set())
+
+            stale = [m for m, seen in members.items() if m != host_client_id and m != client_id and (now - seen > 45)]
+            for m in stale:
+                members.pop(m, None)
+
+            # Strict security: only clients that joined can poll
+            if client_id:
+                if client_id not in joined and client_id != host_client_id:
+                    return None
+                members[client_id] = now
+
+            msgs = self._room_messages.get(room_id, [])
+            total = len(msgs)
+            new_msgs = msgs[since_index:] if since_index < total else []
+            started = room.get("started", False)
+            ttl_left = max(0, int(self._room_expires.get(room_id, 0) - now)) if started else room["duration_seconds"]
+            active_count = len([m for m, seen in members.items() if m == host_client_id or (now - seen <= 45)])
+            meta = {
+                "expires_at": room["expires_at"] if started else 0,
+                "duration_seconds": room["duration_seconds"],
+                "ttl_left": ttl_left,
+                "max_members": room["max_members"],
+                "active_members": max(1, active_count),
+                "total_joined": len(joined),
+                "is_full": len(joined) >= room["max_members"],
+                "total_messages": total,
+                "started": started,
+            }
+            return new_msgs, total, meta
+
+    async def delete_room(self, room_id: str, admin_token: str) -> bool:
+        async with self._lock:
+            if room_id not in self._rooms:
+                return False
+            expected_token = self._rooms[room_id].get("admin_token", "")
+            if not secrets.compare_digest(expected_token, admin_token):
+                return False
+            self._rooms.pop(room_id, None)
+            self._room_expires.pop(room_id, None)
+            self._room_messages.pop(room_id, None)
+            self._room_members.pop(room_id, None)
+            self._room_joined.pop(room_id, None)
+            self._room_joined_order.pop(room_id, None)
+            return True
 
 
 class StorageManager:
@@ -326,6 +532,292 @@ class StorageManager:
             }
         else:
             return await self.memory.get_receipt(key)
+
+    async def create_room(self, room_id: str, admin_token: str, duration_seconds: int, max_members: int, host_client_id: str) -> bool:
+        if self.is_redis and self.redis:
+            active_set = await self.redis.smembers("active_rooms_set")
+            active_count = 0
+            if active_set:
+                for r in active_set:
+                    rid = r.decode() if isinstance(r, bytes) else str(r)
+                    if await self.redis.exists(f"room:{rid}:meta"):
+                        active_count += 1
+                    else:
+                        await self.redis.srem("active_rooms_set", rid)
+            if active_count >= settings.max_active_rooms:
+                return False
+
+            now = int(time.time())
+            meta_key = f"room:{room_id}:meta"
+            members_key = f"room:{room_id}:members"
+            joined_key = f"room:{room_id}:joined"
+            pipe = self.redis.pipeline()
+            pipe.sadd("active_rooms_set", room_id)
+            pipe.hset(meta_key, mapping={
+                "admin_token": admin_token,
+                "host_client_id": host_client_id,
+                "duration_seconds": str(duration_seconds),
+                "max_members": str(max_members),
+                "created_at": str(now),
+                "started": "0",
+                "expires_at": "0",
+            })
+            pipe.hset(members_key, host_client_id, str(now))
+            pipe.sadd(joined_key, host_client_id)
+            pipe.rpush(f"room:{room_id}:order", host_client_id)
+            pipe.expire(meta_key, 900)
+            pipe.expire(f"room:{room_id}:msgs", 900)
+            pipe.expire(members_key, 900)
+            pipe.expire(joined_key, 900)
+            pipe.expire(f"room:{room_id}:order", 900)
+            await pipe.execute()
+            return True
+        else:
+            return await self.memory.create_room(room_id, admin_token, duration_seconds, max_members, host_client_id)
+
+    async def start_room(self, room_id: str, admin_token: str) -> dict | None:
+        if self.is_redis and self.redis:
+            meta_key = f"room:{room_id}:meta"
+            meta = await self.redis.hgetall(meta_key)
+            if not meta:
+                return None
+            meta_dict = {(k.decode() if isinstance(k, bytes) else str(k)): (v.decode() if isinstance(v, bytes) else str(v)) for k, v in meta.items()}
+            expected = meta_dict.get("admin_token", "")
+            if not secrets.compare_digest(expected, admin_token):
+                return None
+            now = int(time.time())
+            dur = int(meta_dict.get("duration_seconds", 900))
+            started = meta_dict.get("started", "0") == "1"
+            if not started:
+                new_exp = now + dur
+                pipe = self.redis.pipeline()
+                pipe.hset(meta_key, mapping={"started": "1", "expires_at": str(new_exp)})
+                pipe.expire(meta_key, dur)
+                pipe.expire(f"room:{room_id}:msgs", dur)
+                pipe.expire(f"room:{room_id}:members", dur)
+                pipe.expire(f"room:{room_id}:joined", dur)
+                pipe.expire(f"room:{room_id}:order", dur)
+                await pipe.execute()
+                return {"expires_at": new_exp, "duration_seconds": dur, "ttl_left": dur, "started": True}
+            else:
+                exp = int(meta_dict.get("expires_at", now + dur))
+                return {"expires_at": exp, "duration_seconds": dur, "ttl_left": max(0, exp - now), "started": True}
+        else:
+            return await self.memory.start_room(room_id, admin_token)
+
+    async def get_room_meta(self, room_id: str) -> dict | None:
+        if self.is_redis and self.redis:
+            meta_key = f"room:{room_id}:meta"
+            meta = await self.redis.hgetall(meta_key)
+            if not meta:
+                return None
+            meta_dict = {(k.decode() if isinstance(k, bytes) else str(k)): (v.decode() if isinstance(v, bytes) else str(v)) for k, v in meta.items()}
+            expires_at = int(meta_dict.get("expires_at", 0))
+            now = time.time()
+            started = meta_dict.get("started", "0") == "1"
+            dur = int(meta_dict.get("duration_seconds", 900))
+            ttl_left = max(0, int(expires_at - now)) if started else dur
+            host_client_id = meta_dict.get("host_client_id", "")
+            max_members = int(meta_dict.get("max_members", 4))
+
+            members_key = f"room:{room_id}:members"
+            members_raw = await self.redis.hgetall(members_key)
+            active_count = 0
+            for k, v in members_raw.items():
+                mk = k.decode() if isinstance(k, bytes) else str(k)
+                mv = float(v.decode() if isinstance(v, bytes) else str(v))
+                if mk == host_client_id or now - mv <= 45:
+                    active_count += 1
+                else:
+                    await self.redis.hdel(members_key, mk)
+
+            joined_key = f"room:{room_id}:joined"
+            total_joined = await self.redis.scard(joined_key)
+            return {
+                "expires_at": expires_at if started else 0,
+                "duration_seconds": dur,
+                "ttl_left": ttl_left,
+                "max_members": max_members,
+                "created_at": int(meta_dict.get("created_at", 0)),
+                "active_members": max(1, active_count),
+                "total_joined": total_joined,
+                "is_full": total_joined >= max_members,
+                "started": started,
+            }
+        else:
+            return await self.memory.get_room_meta(room_id)
+
+    async def join_room(self, room_id: str, client_id: str) -> tuple[bool, str, dict]:
+        if self.is_redis and self.redis:
+            meta_key = f"room:{room_id}:meta"
+            meta = await self.redis.hgetall(meta_key)
+            if not meta:
+                return False, "Room not found or session ended", {}
+            meta_dict = {(k.decode() if isinstance(k, bytes) else str(k)): (v.decode() if isinstance(v, bytes) else str(v)) for k, v in meta.items()}
+            max_members = int(meta_dict.get("max_members", 4))
+            expires_at = int(meta_dict.get("expires_at", 0))
+            started = meta_dict.get("started", "0") == "1"
+            dur = int(meta_dict.get("duration_seconds", 900))
+            host_client_id = meta_dict.get("host_client_id", "")
+            now = time.time()
+            ttl_left = max(0, int(expires_at - now)) if started else dur
+
+            joined_key = f"room:{room_id}:joined"
+            is_member = await self.redis.sismember(joined_key, client_id)
+            if not is_member and client_id != host_client_id:
+                total_joined = await self.redis.scard(joined_key)
+                if total_joined >= max_members:
+                    return False, "Room capacity reached. Session is locked to new participants.", {}
+                await self.redis.sadd(joined_key, client_id)
+                await self.redis.expire(joined_key, max(1, ttl_left if started else 900))
+
+            members_key = f"room:{room_id}:members"
+            members_raw = await self.redis.hgetall(members_key)
+            members = {}
+            for k, v in members_raw.items():
+                mk = k.decode() if isinstance(k, bytes) else str(k)
+                mv = float(v.decode() if isinstance(v, bytes) else str(v))
+                if mk == host_client_id or mk == client_id or now - mv <= 45:
+                    members[mk] = mv
+                else:
+                    await self.redis.hdel(members_key, mk)
+
+            await self.redis.hset(members_key, client_id, str(now))
+            await self.redis.expire(members_key, max(1, ttl_left if started else 900))
+
+            order_key = f"room:{room_id}:order"
+            order_list = await self.redis.lrange(order_key, 0, -1)
+            order_strs = [(x.decode() if isinstance(x, bytes) else str(x)) for x in order_list]
+            if client_id not in order_strs:
+                await self.redis.rpush(order_key, client_id)
+                await self.redis.expire(order_key, max(1, ttl_left if started else 900))
+                guest_index = len(order_strs)
+            else:
+                guest_index = order_strs.index(client_id)
+
+            total_joined = await self.redis.scard(joined_key)
+            return True, "", {
+                "expires_at": expires_at if started else 0,
+                "duration_seconds": dur,
+                "ttl_left": ttl_left,
+                "max_members": max_members,
+                "active_members": len([m for m, seen in members.items() if m == host_client_id or (now - seen <= 45)]),
+                "total_joined": total_joined,
+                "is_full": total_joined >= max_members,
+                "guest_index": guest_index,
+                "started": started,
+            }
+        else:
+            return await self.memory.join_room(room_id, client_id)
+
+    async def add_room_message(self, room_id: str, sender: str, ciphertext: str, iv: str) -> dict | None:
+        if self.is_redis and self.redis:
+            meta_key = f"room:{room_id}:meta"
+            if not await self.redis.exists(meta_key):
+                return None
+            ttl = await self.redis.ttl(meta_key)
+            if ttl <= 0:
+                return None
+            msg = {
+                "sender": sender,
+                "ciphertext": ciphertext,
+                "iv": iv,
+                "timestamp": int(time.time()),
+            }
+            import json
+            msgs_key = f"room:{room_id}:msgs"
+            pipe = self.redis.pipeline()
+            pipe.rpush(msgs_key, json.dumps(msg))
+            pipe.ltrim(msgs_key, -50, -1)
+            pipe.expire(msgs_key, max(1, ttl))
+            await pipe.execute()
+            return msg
+        else:
+            return await self.memory.add_room_message(room_id, sender, ciphertext, iv)
+
+    async def get_room_messages(self, room_id: str, since_index: int, client_id: str) -> tuple[list[dict], int, dict] | None:
+        if self.is_redis and self.redis:
+            meta_key = f"room:{room_id}:meta"
+            meta = await self.redis.hgetall(meta_key)
+            if not meta:
+                return None
+            meta_dict = {(k.decode() if isinstance(k, bytes) else str(k)): (v.decode() if isinstance(v, bytes) else str(v)) for k, v in meta.items()}
+            expires_at = int(meta_dict.get("expires_at", 0))
+            started = meta_dict.get("started", "0") == "1"
+            dur = int(meta_dict.get("duration_seconds", 900))
+            max_members = int(meta_dict.get("max_members", 4))
+            host_client_id = meta_dict.get("host_client_id", "")
+            now = time.time()
+            ttl_left = max(0, int(expires_at - now)) if started else dur
+
+            joined_key = f"room:{room_id}:joined"
+            if client_id:
+                is_member = await self.redis.sismember(joined_key, client_id)
+                if not is_member and client_id != host_client_id:
+                    return None
+
+            members_key = f"room:{room_id}:members"
+            members_raw = await self.redis.hgetall(members_key)
+            members = {}
+            for k, v in members_raw.items():
+                mk = k.decode() if isinstance(k, bytes) else str(k)
+                mv = float(v.decode() if isinstance(v, bytes) else str(v))
+                if mk == host_client_id or mk == client_id or now - mv <= 45:
+                    members[mk] = mv
+                else:
+                    await self.redis.hdel(members_key, mk)
+
+            if client_id:
+                await self.redis.hset(members_key, client_id, str(now))
+
+            msgs_key = f"room:{room_id}:msgs"
+            raw_msgs = await self.redis.lrange(msgs_key, since_index, -1)
+            total = await self.redis.llen(msgs_key)
+            import json
+            messages = []
+            for m in raw_msgs:
+                s = m.decode() if isinstance(m, bytes) else str(m)
+                try:
+                    messages.append(json.loads(s))
+                except Exception:
+                    pass
+            active_count = len([m for m, seen in members.items() if m == host_client_id or (now - seen <= 45)])
+            total_joined = await self.redis.scard(joined_key)
+            meta_resp = {
+                "expires_at": expires_at if started else 0,
+                "duration_seconds": dur,
+                "ttl_left": ttl_left,
+                "max_members": max_members,
+                "active_members": max(1, active_count),
+                "total_joined": total_joined,
+                "is_full": total_joined >= max_members,
+                "total_messages": total,
+                "started": started,
+            }
+            return messages, total, meta_resp
+        else:
+            return await self.memory.get_room_messages(room_id, since_index, client_id)
+
+    async def delete_room(self, room_id: str, admin_token: str) -> bool:
+        if self.is_redis and self.redis:
+            meta_key = f"room:{room_id}:meta"
+            token = await self.redis.hget(meta_key, "admin_token")
+            if not token:
+                return False
+            expected = token.decode() if isinstance(token, bytes) else str(token)
+            if not secrets.compare_digest(expected, admin_token):
+                return False
+            pipe = self.redis.pipeline()
+            pipe.delete(meta_key)
+            pipe.delete(f"room:{room_id}:msgs")
+            pipe.delete(f"room:{room_id}:members")
+            pipe.delete(f"room:{room_id}:joined")
+            pipe.delete(f"room:{room_id}:order")
+            pipe.srem("active_rooms_set", room_id)
+            await pipe.execute()
+            return True
+        else:
+            return await self.memory.delete_room(room_id, admin_token)
 
     async def close(self):
         if self.is_redis and self.redis:
@@ -553,6 +1045,32 @@ class CreatePasteResponse(BaseModel):
 class PasteMetaResponse(BaseModel):
     views_left: int
     created_at: int
+
+
+class CreateRoomRequest(BaseModel):
+    duration_seconds: int = Field(default=900, ge=300, le=1200) # 5m to 20m
+    max_members: int = Field(default=4, ge=2, le=4)
+    client_id: Optional[str] = Field(default=None, max_length=64)
+
+
+class CreateRoomResponse(BaseModel):
+    room_id: str
+    admin_token: str
+    client_id: str
+    expires_at: int
+    duration_seconds: int
+    max_members: int
+
+
+class JoinRoomRequest(BaseModel):
+    client_id: str = Field(..., min_length=4, max_length=64)
+
+
+class SendRoomMessageRequest(BaseModel):
+    client_id: str = Field(..., min_length=4, max_length=64)
+    sender: str = Field(default="Anonymous", max_length=32)
+    ciphertext: str = Field(..., min_length=1, max_length=8000)
+    iv: str = Field(default="", max_length=100)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -798,6 +1316,208 @@ async def get_paste_info(request: Request, paste_id: str) -> dict:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Flash Room Endpoints (Zero-Knowledge Ephemeral Group Chat)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.post(
+    "/api/room",
+    response_model=CreateRoomResponse,
+    status_code=201,
+    summary="Create an ephemeral flash room",
+)
+@limiter.limit("10/minute")
+async def create_room(
+    request: Request,
+    payload: CreateRoomRequest = Body(...),
+) -> CreateRoomResponse:
+    room_id = secrets.token_urlsafe(12)
+    admin_token = secrets.token_hex(32)
+    host_client_id = payload.client_id or f"host_{secrets.token_hex(12)}"
+    success = await storage.create_room(
+        room_id=room_id,
+        admin_token=admin_token,
+        duration_seconds=payload.duration_seconds,
+        max_members=payload.max_members,
+        host_client_id=host_client_id,
+    )
+    if not success:
+        raise HTTPException(status_code=429, detail="All room slots occupied")
+
+    logger.info(
+        "Room created id=%s duration=%ds max_members=%d ip=%s",
+        room_id,
+        payload.duration_seconds,
+        payload.max_members,
+        get_client_ip(request),
+    )
+    return CreateRoomResponse(
+        room_id=room_id,
+        admin_token=admin_token,
+        client_id=host_client_id,
+        expires_at=0,
+        duration_seconds=payload.duration_seconds,
+        max_members=payload.max_members,
+    )
+
+
+@app.post(
+    "/api/room/{room_id}/start",
+    summary="Host enters and starts the session countdown timer",
+)
+@limiter.limit("20/minute")
+async def start_room_endpoint(
+    request: Request,
+    room_id: str,
+    x_admin_token: str | None = Header(None, alias="X-Admin-Token"),
+) -> JSONResponse:
+    if not room_id or len(room_id) > 32:
+        raise HTTPException(status_code=400, detail="Invalid room ID")
+    if not x_admin_token:
+        raise HTTPException(status_code=401, detail="Admin token required")
+    res = await storage.start_room(room_id, x_admin_token)
+    if not res:
+        raise HTTPException(status_code=404, detail="Room not found or unauthorized")
+    return JSONResponse(
+        content={"status": "started", **res},
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, private",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.get(
+    "/api/room/{room_id}/info",
+    summary="Get public room metadata",
+)
+@limiter.limit("60/minute")
+async def get_room_info(request: Request, room_id: str) -> JSONResponse:
+    if not room_id or len(room_id) > 32:
+        raise HTTPException(status_code=400, detail="Invalid room ID")
+    meta = await storage.get_room_meta(room_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Room not found or expired")
+    return JSONResponse(
+        content=meta,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, private",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.post(
+    "/api/room/{room_id}/join",
+    summary="Join an ephemeral room and register heartbeat",
+)
+@limiter.limit("60/minute")
+async def join_room(
+    request: Request,
+    room_id: str,
+    payload: JoinRoomRequest = Body(...),
+) -> JSONResponse:
+    if not room_id or len(room_id) > 32:
+        raise HTTPException(status_code=400, detail="Invalid room ID")
+    success, err_msg, meta = await storage.join_room(room_id, payload.client_id)
+    if not success:
+        if "not found" in err_msg.lower():
+            raise HTTPException(status_code=404, detail=err_msg)
+        if "full" in err_msg.lower() or "capacity" in err_msg.lower():
+            raise HTTPException(status_code=403, detail="Room capacity reached. Session is locked to new participants.")
+        raise HTTPException(status_code=400, detail=err_msg)
+
+    return JSONResponse(
+        content={"status": "joined", **meta},
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, private",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.post(
+    "/api/room/{room_id}/msg",
+    summary="Send encrypted message to room",
+)
+@limiter.limit("60/minute")
+async def send_room_message(
+    request: Request,
+    room_id: str,
+    payload: SendRoomMessageRequest = Body(...),
+) -> JSONResponse:
+    if not room_id or len(room_id) > 32:
+        raise HTTPException(status_code=400, detail="Invalid room ID")
+    clean_sender = "".join(c for c in payload.sender if c.isprintable()).strip()[:32] or "Anonymous"
+    msg = await storage.add_room_message(
+        room_id=room_id,
+        sender=clean_sender,
+        ciphertext=payload.ciphertext,
+        iv=payload.iv,
+    )
+    if not msg:
+        raise HTTPException(status_code=404, detail="Room not found or expired")
+    return JSONResponse(
+        content={"status": "sent", "timestamp": msg["timestamp"]},
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, private",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.get(
+    "/api/room/{room_id}/msgs",
+    summary="Poll messages from room",
+)
+@limiter.limit("120/minute")
+async def get_room_messages(
+    request: Request,
+    room_id: str,
+    client_id: str = Query(...),
+    since: int = Query(0, ge=0),
+) -> JSONResponse:
+    if not room_id or len(room_id) > 32:
+        raise HTTPException(status_code=400, detail="Invalid room ID")
+    res = await storage.get_room_messages(room_id, since, client_id)
+    if res is None:
+        raise HTTPException(status_code=404, detail="Room not found or expired")
+    messages, total, meta = res
+    return JSONResponse(
+        content={
+            "messages": messages,
+            "total": total,
+            **meta,
+        },
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, private",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.delete(
+    "/api/room/{room_id}",
+    status_code=204,
+    summary="Destroy an ephemeral room (host only)",
+)
+@limiter.limit("10/minute")
+async def delete_room(
+    request: Request,
+    room_id: str,
+    x_admin_token: str | None = Header(None, alias="X-Admin-Token"),
+) -> Response:
+    if not room_id or len(room_id) > 32:
+        raise HTTPException(status_code=400, detail="Invalid room ID")
+    if not x_admin_token:
+        raise HTTPException(status_code=401, detail="Admin token required")
+    deleted = await storage.delete_room(room_id, x_admin_token)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Room not found or invalid token")
+    logger.info("Room destroyed id=%s ip=%s", room_id, get_client_ip(request))
+    return Response(status_code=204)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Serve static frontend (production mode)
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -806,6 +1526,19 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 if os.path.isdir(STATIC_DIR):
     @app.get("/view/{full_path:path}", include_in_schema=False)
     async def serve_view_spa(full_path: str):
+        index_file = os.path.join(STATIC_DIR, "index.html")
+        if os.path.isfile(index_file):
+            return FileResponse(
+                index_file,
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                },
+            )
+        raise HTTPException(status_code=404, detail="Page not found")
+
+    @app.get("/room/{full_path:path}", include_in_schema=False)
+    async def serve_room_spa(full_path: str):
         index_file = os.path.join(STATIC_DIR, "index.html")
         if os.path.isfile(index_file):
             return FileResponse(

@@ -907,7 +907,7 @@ html, body {
 /* Interstitial Envelope Metadata Grid */
 .interstitial-meta-box {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 0.75rem;
   max-width: 480px;
   margin: 1rem auto 1.75rem auto;
@@ -1415,4 +1415,375 @@ html, body {
     gap: 0.5rem;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FLASH ROOM — KALI LINUX TERMINAL DESIGN SYSTEM
+   Authentic hacker terminal aesthetics, high contrast, mobile responsive
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.room-notice-box {
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--brand-cyan);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem 1rem;
+}
+
+.room-notice-header {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--brand-cyan);
+  letter-spacing: 0.05em;
+  margin-bottom: 0.35rem;
+}
+
+.room-notice-desc {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+/* Kali Terminal Window Header */
+.kali-window-header {
+  background: #0d1219;
+  border: 1px solid var(--border-default);
+  border-bottom: none;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  padding: 0.65rem 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.kali-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.kali-header-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.kali-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.kali-dot.red    { background: #ff5f56; }
+.kali-dot.yellow { background: #ffbd2e; }
+.kali-dot.green  { background: #27c93f; }
+
+.kali-title {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.kali-header-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.room-badge-tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: #070a0f;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 0.2rem 0.45rem;
+}
+
+.room-timer-badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent-red);
+  background: #070a0f;
+  border: 1px solid var(--accent-red);
+  border-radius: var(--radius-sm);
+  padding: 0.2rem 0.55rem;
+  letter-spacing: 0.03em;
+}
+
+.btn-danger-sm {
+  background: transparent;
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.25rem 0.55rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-danger-sm:hover {
+  background: var(--accent-red);
+  color: #ffffff;
+}
+
+.btn-secondary-sm {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.25rem 0.55rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-secondary-sm:hover {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
+/* Kali Terminal Feed Stream */
+.kali-terminal-stream {
+  background: #05080d;
+  border: 1px solid var(--border-default);
+  min-height: 280px;
+  max-height: 440px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: #e6edf3;
+  scroll-behavior: smooth;
+}
+
+/* Terminal Message Block */
+.kali-msg-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  animation: fadeInMsg 0.12s ease-out;
+}
+
+.kali-msg-prompt {
+  font-size: 0.75rem;
+  letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.kali-prompt-corner {
+  color: #485460;
+  font-weight: 600;
+}
+
+.kali-user-tag {
+  font-weight: 600;
+}
+
+/* 4-Member Terminal Color Palette (Host Red, 1st Guest Blue, 2nd Guest Yellow, Last Guest Green) */
+.color-red,
+.kali-user-tag.color-red,
+.kali-prompt-role.color-red,
+.kali-arrow.color-red {
+  color: #ff7b72 !important;
+}
+
+.color-blue,
+.kali-user-tag.color-blue,
+.kali-prompt-role.color-blue,
+.kali-arrow.color-blue {
+  color: #58a6ff !important;
+}
+
+.color-yellow,
+.kali-user-tag.color-yellow,
+.kali-prompt-role.color-yellow,
+.kali-arrow.color-yellow {
+  color: #e3b341 !important;
+}
+
+.color-green,
+.kali-user-tag.color-green,
+.kali-prompt-role.color-green,
+.kali-arrow.color-green {
+  color: #00ffc8 !important;
+}
+
+.kali-prompt-line.color-red, .kali-prompt-arrow.color-red { color: #ff7b72 !important; }
+.kali-prompt-line.color-blue, .kali-prompt-arrow.color-blue { color: #58a6ff !important; }
+.kali-prompt-line.color-yellow, .kali-prompt-arrow.color-yellow { color: #e3b341 !important; }
+.kali-prompt-line.color-green, .kali-prompt-arrow.color-green { color: #00ffc8 !important; }
+
+.kali-prompt-icon {
+  font-weight: bold;
+}
+
+.kali-prompt-dir {
+  color: #7d8590;
+}
+
+.kali-msg-time {
+  color: #485460;
+  font-size: 0.7rem;
+  margin-left: auto;
+}
+
+.kali-msg-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  padding-left: 0.2rem;
+}
+
+.kali-arrow {
+  font-weight: 700;
+  user-select: none;
+}
+
+.kali-text {
+  flex: 1;
+  color: #f0f6fc;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* System Terminal Notice */
+.kali-sys-line {
+  color: #e3b341;
+  font-size: 0.76rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0;
+}
+
+.kali-sys-icon {
+  color: #00ffc8;
+  font-weight: bold;
+}
+
+/* Kali Terminal Input Bar */
+.kali-input-bar {
+  background: #090d14;
+  border: 1px solid var(--border-default);
+  border-top: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.kali-prompt-line {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: #00ffc8;
+  user-select: none;
+}
+
+.kali-input-action-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.kali-prompt-arrow {
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #00ffc8;
+  user-select: none;
+}
+
+.kali-input-textarea {
+  flex: 1;
+  background: #05080d;
+  border: 1px solid #1f2937;
+  border-radius: var(--radius-sm);
+  color: #00ffc8;
+  caret-color: #00ffc8;
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  padding: 0.55rem 0.75rem;
+  resize: none;
+  min-height: 40px;
+  max-height: 120px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.kali-input-textarea:focus {
+  border-color: #00ffc8;
+  box-shadow: 0 0 8px rgba(0, 255, 200, 0.15);
+}
+
+.kali-input-textarea::placeholder {
+  color: #4b5563;
+  font-style: italic;
+}
+
+/* Mobile Responsiveness for Terminal */
+@media (max-width: 600px) {
+  .kali-window-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.5rem 0.65rem;
+  }
+
+  .kali-header-badges {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .kali-terminal-stream {
+    min-height: 240px;
+    max-height: 380px;
+    padding: 0.65rem 0.5rem;
+    font-size: 0.8rem;
+  }
+
+  .kali-input-textarea {
+    font-size: 16px; /* Prevents auto-zoom on iOS */
+    padding: 0.45rem 0.55rem;
+  }
+
+  .kali-msg-time {
+    display: none; /* Hide timestamp on very small mobile to save horizontal space */
+  }
+
+  .kali-input-bar {
+    padding: 0.55rem 0.65rem;
+  }
+
+  #room-send-btn {
+    padding: 0.5rem 0.85rem;
+    font-size: 0.8rem;
+  }
+}
+
+
 

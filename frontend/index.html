@@ -58,13 +58,16 @@
     <!-- ═══ CREATE PANEL ═══ -->
     <section id="create-panel" class="composer-box" aria-label="Create Encrypted Note">
       
-      <!-- Mode Tabs (Note / File) -->
+      <!-- Mode Tabs (Note / File / Flash Room) -->
       <div class="composer-tabs" role="tablist">
         <button type="button" class="tab-btn active" id="tab-text-btn" role="tab" aria-selected="true">
           Note
         </button>
         <button type="button" class="tab-btn" id="tab-file-btn" role="tab" aria-selected="false">
           File
+        </button>
+        <button type="button" class="tab-btn" id="tab-room-btn" role="tab" aria-selected="false">
+          Flash Room
         </button>
         <span class="char-indicator" id="char-count">0 / 500,000</span>
       </div>
@@ -95,62 +98,112 @@
         <div id="file-list-preview" class="file-chip-list" style="display: none;"></div>
       </div>
 
-      <!-- Security Enhancements & Controls Options -->
-      <div class="options-group">
-        <div class="option-row" style="margin-bottom: 0.6rem;">
-          <label class="checkbox-label" for="enable-passphrase">
-            <input type="checkbox" id="enable-passphrase" />
-            <span>Protect with a secondary passphrase</span>
-          </label>
-        </div>
-        <div id="passphrase-container" style="display: none; margin-bottom: 0.85rem;">
-          <input type="password" id="note-passphrase" class="text-input" placeholder="Enter secondary secret passphrase" autocomplete="new-password" />
-          <p class="input-hint">Recipient will need both the link AND this passphrase to decrypt. Wrapped with PBKDF2 (SHA-256, 600,000 iterations).</p>
+      <!-- Flash Room Composer Content -->
+      <div id="room-tab-content" style="display: none;">
+        <div class="room-notice-box">
+          <div class="room-notice-header">[EPHEMERAL FLASH ROOM]</div>
         </div>
 
-        <div class="option-row autowipe-row">
-          <label class="checkbox-label" for="screen-autowipe-select">
-            <span>Screen auto-wipe after viewing:</span>
+        <div class="dropdown-group" style="margin-top: 1.25rem;">
+          <div class="select-wrapper">
+            <label for="room-duration-select" style="display: block; font-size: 0.78rem; font-family: var(--font-mono); color: var(--text-muted); margin-bottom: 0.35rem;">[SESSION DURATION]</label>
+            <select id="room-duration-select" class="select-control" autocomplete="off" style="width: 100%;">
+              <option value="300">5 minutes</option>
+              <option value="600">10 minutes</option>
+              <option value="900" selected>15 minutes</option>
+              <option value="1200">20 minutes</option>
+            </select>
+          </div>
+          <div class="select-wrapper">
+            <label for="room-members-select" style="display: block; font-size: 0.78rem; font-family: var(--font-mono); color: var(--text-muted); margin-bottom: 0.35rem;">[CAPACITY LIMIT]</label>
+            <select id="room-members-select" class="select-control" autocomplete="off" style="width: 100%;">
+              <option value="2">2 participants</option>
+              <option value="3">3 participants</option>
+              <option value="4" selected>4 participants</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin-top: 1rem;">
+          <label for="room-alias-input" style="display: block; font-size: 0.78rem; font-family: var(--font-mono); color: var(--text-muted); margin-bottom: 0.35rem;">[CODENAME]</label>
+          <input type="text" id="room-alias-input" name="room_user_handle" class="text-input" placeholder="Enter the Codename" maxlength="24" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" />
+        </div>
+
+        <div class="option-row" style="margin-top: 1rem; margin-bottom: 0.5rem;">
+          <label class="checkbox-label" for="room-enable-password">
+            <input type="checkbox" id="room-enable-password" />
+            <span>Protect with room password</span>
           </label>
-          <select class="select-control autowipe-select" id="screen-autowipe-select" autocomplete="off">
-            <option value="0" selected>Off (keep open)</option>
-            <option value="30">30 seconds</option>
-            <option value="60">60 seconds</option>
-            <option value="120">2 minutes</option>
-            <option value="300">5 minutes</option>
-          </select>
+        </div>
+        <div id="room-password-container" style="display: none; margin-bottom: 0.85rem;">
+          <input type="password" id="room-password-input" name="room_password" class="text-input" placeholder="Enter room password to lock session" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" />
+        </div>
+
+        <div class="controls-row" style="margin-top: 1.5rem;">
+          <button type="button" class="btn-primary" id="create-room-btn" style="width: 100%; justify-content: center; padding: 0.75rem 1.4rem;">
+            [ CREATE FLASH ROOM ]
+          </button>
         </div>
       </div>
 
-      <!-- Controls & Submit Row -->
-      <div class="controls-row">
-        <div class="dropdown-group">
-          <select class="select-control" id="max-views-select" aria-label="Purge after views">
-            <option value="1">1 view (burn on read)</option>
-            <option value="2">2 views</option>
-            <option value="5">5 views</option>
-            <option value="10">10 views</option>
-            <option value="25">25 views</option>
-            <option value="100">100 views</option>
-          </select>
+      <!-- Note / File Options and Controls -->
+      <div id="note-file-controls">
+        <div class="options-group">
+          <div class="option-row" style="margin-bottom: 0.6rem;">
+            <label class="checkbox-label" for="enable-passphrase">
+              <input type="checkbox" id="enable-passphrase" />
+              <span>Protect with a secondary passphrase</span>
+            </label>
+          </div>
+          <div id="passphrase-container" style="display: none; margin-bottom: 0.85rem;">
+            <input type="password" id="note-passphrase" class="text-input" placeholder="Enter secondary secret passphrase" autocomplete="new-password" />
+            <p class="input-hint">Recipient will need both the link AND this passphrase to decrypt. Wrapped with PBKDF2 (SHA-256, 600,000 iterations).</p>
+          </div>
 
-          <select class="select-control" id="ttl-select" aria-label="Expiration duration">
-            <option value="300">5 minutes</option>
-            <option value="3600">1 hour</option>
-            <option value="86400" selected>24 hours</option>
-            <option value="259200">3 days</option>
-            <option value="604800">7 days</option>
-          </select>
+          <div class="option-row autowipe-row">
+            <label class="checkbox-label" for="screen-autowipe-select">
+              <span>Screen auto-wipe after viewing:</span>
+            </label>
+            <select class="select-control autowipe-select" id="screen-autowipe-select" autocomplete="off">
+              <option value="0" selected>Off (keep open)</option>
+              <option value="30">30 seconds</option>
+              <option value="60">60 seconds</option>
+              <option value="120">2 minutes</option>
+              <option value="300">5 minutes</option>
+            </select>
+          </div>
         </div>
 
-        <button type="button" class="btn-primary" id="encrypt-btn">
-          <span id="encrypt-btn-label">Create Note</span>
-        </button>
-      </div>
+        <!-- Controls & Submit Row -->
+        <div class="controls-row">
+          <div class="dropdown-group">
+            <select class="select-control" id="max-views-select" aria-label="Purge after views">
+              <option value="1">1 view (burn on read)</option>
+              <option value="2">2 views</option>
+              <option value="5">5 views</option>
+              <option value="10">10 views</option>
+              <option value="25">25 views</option>
+              <option value="100">100 views</option>
+            </select>
 
-      <p class="lifecycle-note" id="lifecycle-note">
-        The note will expire and be destroyed after <strong>1 view</strong>.
-      </p>
+            <select class="select-control" id="ttl-select" aria-label="Expiration duration">
+              <option value="300">5 minutes</option>
+              <option value="3600">1 hour</option>
+              <option value="86400" selected>24 hours</option>
+              <option value="259200">3 days</option>
+              <option value="604800">7 days</option>
+            </select>
+          </div>
+
+          <button type="button" class="btn-primary" id="encrypt-btn">
+            <span id="encrypt-btn-label">Create Note</span>
+          </button>
+        </div>
+
+        <p class="lifecycle-note" id="lifecycle-note">
+          The note will expire and be destroyed after <strong>1 view</strong>.
+        </p>
+      </div>
 
     </section>
 
@@ -209,6 +262,49 @@
         <button type="button" class="btn-danger" id="burn-now-btn">Destroy Note Now</button>
       </div>
 
+    </section>
+
+    <!-- ═══ FLASH ROOM SHARE PANEL ═══ -->
+    <section id="room-share-panel" class="composer-box" style="display: none;" aria-label="Flash Room Ready">
+      <div class="room-notice-box" style="margin-bottom: 1.25rem;">
+        <div class="room-notice-header">[FLASH ROOM ACTIVE]</div>
+        <p class="room-notice-desc">
+          Share this link with your participants. Decryption keys stay in the URL hash and never touch the server.
+        </p>
+      </div>
+
+      <div class="url-box">
+        <input type="text" class="url-input" id="room-share-url" readonly />
+        <button type="button" class="btn-primary" id="copy-room-url-btn">Copy Link</button>
+      </div>
+
+      <div class="qr-toggle-row">
+        <button type="button" class="btn-secondary" id="toggle-room-qr-btn">Show QR Code</button>
+      </div>
+
+      <div id="room-qr-container" class="qr-wrapper" style="display: none;">
+        <div id="room-qr-mount" class="qr-mount"></div>
+      </div>
+
+      <div class="details-grid">
+        <div class="details-card">
+          <div class="details-card-label">Session Duration</div>
+          <div class="details-card-value" id="room-share-duration">—</div>
+        </div>
+        <div class="details-card">
+          <div class="details-card-label">Capacity Limit</div>
+          <div class="details-card-value" id="room-share-capacity">—</div>
+        </div>
+        <div class="details-card">
+          <div class="details-card-label">Protection</div>
+          <div class="details-card-value" id="room-share-protection">None</div>
+        </div>
+      </div>
+
+      <div class="share-actions-row" style="margin-top: 1.5rem;">
+        <button type="button" class="btn-primary" id="enter-room-btn">[ ENTER FLASH ROOM ]</button>
+        <button type="button" class="btn-danger" id="share-destroy-room-btn">Destroy Room</button>
+      </div>
     </section>
 
     <!-- ═══ VIEW / DECRYPT PANEL ═══ -->
@@ -314,6 +410,98 @@
 
     </section>
 
+    <!-- ═══ FLASH ROOM LIVE CHAT PANEL ═══ -->
+    <section id="room-chat-panel" class="composer-box" style="display: none;" aria-label="Flash Room Live Chat">
+      
+      <!-- Guest Interstitial / Join Screen -->
+      <div id="room-join-interstitial" class="state-view" style="display: none;">
+        <div class="state-view-title">[FLASH ROOM INVITATION]</div>
+        <p class="state-view-desc">
+          You are invited to an ephemeral end-to-end encrypted session. No logs or history are saved to disk.
+        </p>
+        
+        <div class="interstitial-meta-box" style="margin-bottom: 1.25rem;">
+          <div class="interstitial-meta-item">
+            <span class="interstitial-meta-label">Capacity</span>
+            <span class="interstitial-meta-val" id="room-join-capacity-val">—</span>
+          </div>
+          <div class="interstitial-meta-item">
+            <span class="interstitial-meta-label">Time Remaining</span>
+            <span class="interstitial-meta-val" id="room-join-expires-val">—</span>
+          </div>
+        </div>
+
+        <div style="max-width: 380px; margin: 0 auto 1.25rem auto; text-align: left;">
+          <label for="room-guest-alias-input" style="font-size: 0.85rem; font-family: var(--font-mono); color: var(--text-secondary); display: block; margin-bottom: 0.4rem;">
+            [CODENAME]
+          </label>
+          <input type="text" id="room-guest-alias-input" name="guest_user_handle" class="text-input" placeholder="Enter the Codename" maxlength="24" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" />
+        </div>
+
+        <div id="room-guest-password-container" style="display: none; max-width: 380px; margin: 0 auto 1.25rem auto; text-align: left;">
+          <label for="room-guest-password-input" style="font-size: 0.85rem; font-family: var(--font-mono); color: var(--text-secondary); display: block; margin-bottom: 0.4rem;">
+            [ROOM PASSWORD]
+          </label>
+          <input type="password" id="room-guest-password-input" name="guest_room_password" class="text-input" placeholder="Enter room password to unlock" autocomplete="current-password" data-lpignore="true" data-1p-ignore="true" />
+        </div>
+
+        <button type="button" class="btn-primary" id="confirm-join-room-btn" style="padding: 0.75rem 1.75rem; font-size: 1rem; margin: 0 auto;">
+          [ JOIN ROOM ]
+        </button>
+      </div>
+
+      <!-- Live Room View (Kali Linux Terminal Style) -->
+      <div id="room-chat-active" style="display: none;">
+        
+        <!-- Kali Terminal Window Top Bar -->
+        <div class="kali-window-header">
+          <div class="kali-header-left">
+            <div class="kali-header-dots">
+              <span class="kali-dot red"></span>
+              <span class="kali-dot yellow"></span>
+              <span class="kali-dot green"></span>
+            </div>
+            <span class="kali-title" id="kali-title-text">kali@flash: ~/room</span>
+          </div>
+          <div class="kali-header-badges">
+            <span class="room-badge-tag" id="room-id-badge">[ROOM: ----]</span>
+            <span class="room-badge-tag" id="room-count-badge">[MEMBERS: -/-]</span>
+            <span class="room-badge-tag" id="room-role-badge">[HOST]</span>
+            <span class="room-timer-badge" id="room-timer-badge">[REMAINING: --:--]</span>
+            <button type="button" class="btn-danger-sm" id="room-destroy-btn">Destroy Room</button>
+            <button type="button" class="btn-secondary-sm" id="room-leave-btn" style="display: none;">Leave Room</button>
+          </div>
+        </div>
+
+        <!-- Chat messages terminal feed -->
+        <div id="room-messages-container" class="kali-terminal-stream" tabindex="0" role="log" aria-live="polite"></div>
+
+        <!-- Kali Terminal Input Bar -->
+        <div class="kali-input-bar">
+          <div class="kali-prompt-line">
+            <span class="kali-prompt-user" id="kali-input-prompt">┌──(you㉿kali)-[~/room]</span>
+          </div>
+          <div class="kali-input-action-row">
+            <span class="kali-prompt-arrow">└─$</span>
+            <textarea id="room-message-input" class="kali-input-textarea" placeholder="type a message..." rows="1" maxlength="2000" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+            <button type="button" class="btn-primary" id="room-send-btn">[ SEND ]</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Destroyed / Purged Screen -->
+      <div id="room-destroyed-screen" class="state-view" style="display: none;">
+        <div class="state-view-title" style="color: var(--accent-red, #f85149); font-family: var(--font-mono);">[ROOM DESTROYED &amp; PURGED]</div>
+        <p class="state-view-desc" id="room-destroyed-desc">
+          This session has been terminated. All messages have been wiped from memory and local crypto keys have been discarded.
+        </p>
+        <div style="margin-top: 1.5rem;">
+          <a href="/" class="btn-secondary" id="room-return-home-btn" style="text-decoration: none;">[ RETURN TO HOME ]</a>
+        </div>
+      </div>
+
+    </section>
+
   </main>
 
   <!-- ─── FOOTER ─── -->
@@ -337,7 +525,7 @@
 
 <!-- QR Generator and Application Script -->
 <script src="/qrcode.js"></script>
-<script type="module" src="/app.js?v=2.2"></script>
+<script type="module" src="/app.js?v=2.3"></script>
 
 </body>
 </html>

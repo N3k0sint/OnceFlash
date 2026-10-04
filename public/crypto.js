@@ -205,10 +205,11 @@ export async function decryptFile(key, base64Ciphertext) {
  * @returns {Promise<CryptoKey>}
  */
 export async function deriveKeyFromPassphrase(passphrase, salt) {
+  const cleanPassphrase = String(passphrase || "").trim();
   const encoder = new TextEncoder();
   const baseKey = await window.crypto.subtle.importKey(
     "raw",
-    encoder.encode(passphrase),
+    encoder.encode(cleanPassphrase),
     { name: "PBKDF2" },
     false,
     ["deriveKey"]
@@ -235,8 +236,9 @@ export async function deriveKeyFromPassphrase(passphrase, salt) {
  * @returns {Promise<{ wrappedKeyB64: string, saltB64: string }>}
  */
 export async function wrapKeyWithPassphrase(masterKey, passphrase) {
+  const cleanPass = String(passphrase || "").trim();
   const salt = window.crypto.getRandomValues(new Uint8Array(16)); // 128-bit salt
-  const wrappingKey = await deriveKeyFromPassphrase(passphrase, salt);
+  const wrappingKey = await deriveKeyFromPassphrase(cleanPass, salt);
   const rawMasterKey = await window.crypto.subtle.exportKey("raw", masterKey);
   const iv = window.crypto.getRandomValues(new Uint8Array(12)); // 96-bit IV
 
@@ -263,9 +265,10 @@ export async function wrapKeyWithPassphrase(masterKey, passphrase) {
  * @param {string} passphrase
  * @returns {Promise<CryptoKey>} Unwrapped master CryptoKey
  */
-export async function unwrapKeyWithPassphrase(wrappedKeyB64, saltB64, passphrase) {
+export async function unwrapKeyWithPassphrase(wrappedKeyB64, saltB64, passphrase, usages = ["encrypt", "decrypt"], extractable = false) {
+  const cleanPass = String(passphrase || "").trim();
   const salt = base64urlToBuffer(saltB64);
-  const wrappingKey = await deriveKeyFromPassphrase(passphrase, salt);
+  const wrappingKey = await deriveKeyFromPassphrase(cleanPass, salt);
   const combined = base64urlToBuffer(wrappedKeyB64);
 
   if (combined.byteLength < 12 + 16) {
@@ -290,8 +293,8 @@ export async function unwrapKeyWithPassphrase(wrappedKeyB64, saltB64, passphrase
     "raw",
     rawKeyBuffer,
     { name: "AES-GCM", length: 256 },
-    false,
-    ["decrypt"]
+    extractable,
+    usages
   );
 }
 
@@ -341,6 +344,102 @@ export function parseShareHash() {
   };
 }
 
+/**
+ * Import raw key with both encrypt and decrypt permissions for bidirectional room chat.
+ * @param {string} base64urlKey
+ * @returns {Promise<CryptoKey>}
+ */
+export async function importRoomKey(base64urlKey) {
+  const raw = base64urlToBuffer(base64urlKey);
+  return window.crypto.subtle.importKey(
+    "raw",
+    raw,
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"]
+  );
+}
+
+/**
+ * Build zero-knowledge room invite link with key in hash fragment.
+ * Supports optional password protection (#p:<wrappedKey>:<salt>).
+ * @param {string} roomId
+ * @param {string | null} keyB64
+ * @param {{ wrappedKeyB64: string, saltB64: string } | null} passphraseMeta
+ * @returns {string}
+ */
+export function buildRoomUrl(roomId, keyB64, passphraseMeta = null) {
+  if (passphraseMeta) {
+    return `${window.location.origin}/room/${roomId}#p:${passphraseMeta.wrappedKeyB64}:${passphraseMeta.saltB64}`;
+  }
+  return `${window.location.origin}/room/${roomId}#${keyB64}`;
+}
+
+/**
+ * Parse the roomId from pathname (/room/{id}) and key/passphrase from hash fragment
+ * @returns {{ roomId: string | null, isPassphraseProtected: boolean, keyB64: string | null, wrappedKeyB64: string | null, saltB64: string | null }}
+ */
+export function parseRoomHash() {
+  const pathParts = window.location.pathname.split("/").filter(Boolean);
+  let roomId = null;
+  const roomIdx = pathParts.indexOf("room");
+  if (roomIdx !== -1 && pathParts[roomIdx + 1]) {
+    roomId = pathParts[roomIdx + 1].replace(/\/+$/, "").trim();
+  }
+
+  let rawHash = window.location.hash.replace(/^#/, "").trim();
+  if (!rawHash) {
+    return { roomId, isPassphraseProtected: false, keyB64: null, wrappedKeyB64: null, saltB64: null };
+  }
+
+  try {
+    rawHash = decodeURIComponent(rawHash).trim();
+  } catch {}
+  rawHash = rawHash.replace(/\/+$/, "").trim();
+
+  const parts = rawHash.split(":");
+
+  // Passphrase protected: #p:<wrappedKey>:<salt>
+  if (parts[0] === "p" && parts.length >= 3) {
+    return {
+      roomId,
+      isPassphraseProtected: true,
+      wrappedKeyB64: parts[1].replace(/\/+$/, "").trim(),
+      saltB64: parts[2].replace(/\/+$/, "").trim(),
+      keyB64: null,
+    };
+  }
+
+  // Passphrase protected with room ID: #<roomId>:p:<wrappedKey>:<salt>
+  if (parts[1] === "p" && parts.length >= 4) {
+    if (!roomId) roomId = parts[0].replace(/\/+$/, "").trim();
+    return {
+      roomId,
+      isPassphraseProtected: true,
+      wrappedKeyB64: parts[2].replace(/\/+$/, "").trim(),
+      saltB64: parts[3].replace(/\/+$/, "").trim(),
+      keyB64: null,
+    };
+  }
+
+  // Standard: #<keyB64> or #<roomId>:<keyB64>
+  let keyB64 = rawHash;
+  if (parts.length >= 2) {
+    if (!roomId) roomId = parts[0].replace(/\/+$/, "").trim();
+    keyB64 = parts[1].replace(/\/+$/, "").trim();
+  } else {
+    keyB64 = keyB64.replace(/\/+$/, "").trim();
+  }
+
+  return {
+    roomId,
+    isPassphraseProtected: false,
+    keyB64: keyB64 || null,
+    wrappedKeyB64: null,
+    saltB64: null,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Encoding Utilities
 // ─────────────────────────────────────────────────────────────────────────────
@@ -354,7 +453,8 @@ function bufferToBase64(buffer) {
 
 function base64ToBuffer(b64) {
   // Handle base64url by converting to standard base64
-  const standard = b64.replace(/-/g, "+").replace(/_/g, "/");
+  let clean = String(b64).trim();
+  const standard = clean.replace(/-/g, "+").replace(/_/g, "/");
   const binary = atob(standard);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -369,7 +469,14 @@ function bufferToBase64url(buffer) {
 }
 
 function base64urlToBuffer(b64url) {
+  if (!b64url) return new Uint8Array(0);
+  let clean = String(b64url).trim();
+  try {
+    clean = decodeURIComponent(clean);
+  } catch {}
+  clean = clean.replace(/\/+$/, "").trim().replace(/[^A-Za-z0-9_-]/g, "");
   // Pad to multiple of 4
-  const padded = b64url + "=".repeat((4 - (b64url.length % 4)) % 4);
+  const standard = clean.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = standard + "=".repeat((4 - (standard.length % 4)) % 4);
   return base64ToBuffer(padded);
 }

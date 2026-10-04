@@ -22,9 +22,25 @@ import {
   unwrapKeyWithPassphrase,
   buildShareUrl,
   parseShareHash,
-} from "./crypto.js";
+  importRoomKey,
+  buildRoomUrl,
+  parseRoomHash,
+} from "./crypto.js?v=2.3";
 
-import { createPaste, fetchPaste, deletePaste, checkPasteStatus, fetchPasteInfo } from "./api.js";
+import {
+  createPaste,
+  fetchPaste,
+  deletePaste,
+  checkPasteStatus,
+  fetchPasteInfo,
+  createRoom,
+  startRoom,
+  fetchRoomInfo,
+  joinRoom,
+  sendRoomMessage,
+  fetchRoomMessages,
+  destroyRoom,
+} from "./api.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Security Sanitization Helpers (OWASP A03: Injection & Path Traversal)
@@ -201,44 +217,74 @@ function toast(message, type = "info", duration = 3200) {
 // Panels Router
 // ─────────────────────────────────────────────────────────────────────────────
 
-const createPanel = document.getElementById("create-panel");
-const sharePanel  = document.getElementById("share-panel");
-const viewPanel   = document.getElementById("view-panel");
+const createPanel    = document.getElementById("create-panel");
+const sharePanel     = document.getElementById("share-panel");
+const viewPanel      = document.getElementById("view-panel");
+const roomSharePanel = document.getElementById("room-share-panel");
+const roomChatPanel  = document.getElementById("room-chat-panel");
 
 function showPanel(name) {
-  if (createPanel) createPanel.style.display = (name === "create") ? "block" : "none";
-  if (sharePanel)  sharePanel.style.display  = (name === "share")  ? "block" : "none";
-  if (viewPanel)   viewPanel.style.display   = (name === "view")   ? "block" : "none";
+  if (createPanel)    createPanel.style.display    = (name === "create")     ? "block" : "none";
+  if (sharePanel)     sharePanel.style.display     = (name === "share")      ? "block" : "none";
+  if (viewPanel)      viewPanel.style.display      = (name === "view")       ? "block" : "none";
+  if (roomSharePanel) roomSharePanel.style.display = (name === "room-share") ? "block" : "none";
+  if (roomChatPanel)  roomChatPanel.style.display  = (name === "room-chat")  ? "block" : "none";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tab Switching (Note / File)
+// Tab Switching (Note / File / Flash Room)
 // ─────────────────────────────────────────────────────────────────────────────
 
 let activeTab = "text";
 let attachedFiles = []; // Array of { file: File, id: string }
 const MAX_TOTAL_BYTES = 5 * 1024 * 1024; // 5 MB total bundle limit
 
-const tabTextBtn  = document.getElementById("tab-text-btn");
-const tabFileBtn  = document.getElementById("tab-file-btn");
-const textContent = document.getElementById("text-tab-content");
-const fileContent = document.getElementById("file-tab-content");
+const tabTextBtn       = document.getElementById("tab-text-btn");
+const tabFileBtn       = document.getElementById("tab-file-btn");
+const tabRoomBtn       = document.getElementById("tab-room-btn");
+const textContent      = document.getElementById("text-tab-content");
+const fileContent      = document.getElementById("file-tab-content");
+const roomContent      = document.getElementById("room-tab-content");
+const noteFileControls = document.getElementById("note-file-controls");
 
-if (tabTextBtn && tabFileBtn) {
+if (tabTextBtn && tabFileBtn && tabRoomBtn) {
   tabTextBtn.addEventListener("click", () => {
     activeTab = "text";
     tabTextBtn.classList.add("active");
     tabFileBtn.classList.remove("active");
+    tabRoomBtn.classList.remove("active");
     if (textContent) textContent.style.display = "block";
     if (fileContent) fileContent.style.display = "none";
+    if (roomContent) roomContent.style.display = "none";
+    if (noteFileControls) noteFileControls.style.display = "block";
+    const cc = document.getElementById("char-count");
+    if (cc) cc.style.display = "inline";
   });
 
   tabFileBtn.addEventListener("click", () => {
     activeTab = "file";
     tabFileBtn.classList.add("active");
     tabTextBtn.classList.remove("active");
+    tabRoomBtn.classList.remove("active");
     if (textContent) textContent.style.display = "none";
     if (fileContent) fileContent.style.display = "block";
+    if (roomContent) roomContent.style.display = "none";
+    if (noteFileControls) noteFileControls.style.display = "block";
+    const cc = document.getElementById("char-count");
+    if (cc) cc.style.display = "none";
+  });
+
+  tabRoomBtn.addEventListener("click", () => {
+    activeTab = "room";
+    tabRoomBtn.classList.add("active");
+    tabTextBtn.classList.remove("active");
+    tabFileBtn.classList.remove("active");
+    if (textContent) textContent.style.display = "none";
+    if (fileContent) fileContent.style.display = "none";
+    if (roomContent) roomContent.style.display = "block";
+    if (noteFileControls) noteFileControls.style.display = "none";
+    const cc = document.getElementById("char-count");
+    if (cc) cc.style.display = "none";
   });
 }
 
@@ -1103,12 +1149,950 @@ if (receiverDestroyBtn)     receiverDestroyBtn.addEventListener("click", handleR
 if (receiverDestroyBtnFile) receiverDestroyBtnFile.addEventListener("click", handleReceiverDestroy);
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Flash Room Ephemeral Live Chat Engine
+// Zero-knowledge, in-memory, auto-purging live communication
+// ─────────────────────────────────────────────────────────────────────────────
+
+let currentRoom = null;
+
+function purgeRoomMemory() {
+  if (currentRoom) {
+    if (currentRoom.pollTimer) {
+      clearInterval(currentRoom.pollTimer);
+      currentRoom.pollTimer = null;
+    }
+    if (currentRoom.countdownTimer) {
+      clearInterval(currentRoom.countdownTimer);
+      currentRoom.countdownTimer = null;
+    }
+    currentRoom.cryptoKey = null;
+    currentRoom.keyB64 = null;
+    currentRoom.adminToken = null;
+    currentRoom.clientToken = null;
+    currentRoom.isDestroyed = true;
+    currentRoom = null;
+  }
+  const msgContainer = document.getElementById("room-messages-container");
+  if (msgContainer) {
+    msgContainer.replaceChildren();
+  }
+}
+
+function showRoomDestroyed(message = "This session has been terminated. All messages have been wiped from memory and local crypto keys have been discarded.") {
+  purgeRoomMemory();
+  const joinView = document.getElementById("room-join-interstitial");
+  const activeView = document.getElementById("room-chat-active");
+  const destroyedView = document.getElementById("room-destroyed-screen");
+  const descEl = document.getElementById("room-destroyed-desc");
+
+  if (joinView) joinView.style.display = "none";
+  if (activeView) activeView.style.display = "none";
+  if (descEl) descEl.textContent = message;
+  if (destroyedView) destroyedView.style.display = "block";
+  showPanel("room-chat");
+}
+
+function appendSystemMessage(text) {
+  const container = document.getElementById("room-messages-container");
+  if (!container) return;
+
+  const line = document.createElement("div");
+  line.className = "kali-sys-line";
+
+  const icon = document.createElement("span");
+  icon.className = "kali-sys-icon";
+  icon.textContent = "[*]";
+
+  const txt = document.createElement("span");
+  txt.textContent = ` ${text}`;
+
+  line.appendChild(icon);
+  line.appendChild(txt);
+  container.appendChild(line);
+  container.scrollTop = container.scrollHeight;
+}
+
+const memberColorMap = new Map(); // sender -> { isHost, guestIndex }
+const seenGuestsList = [];
+
+function getMemberColorClass(sender, isHost, guestIndex) {
+  if (isHost || guestIndex === 0) return "color-red";
+  if (guestIndex === 1) return "color-blue";
+  if (guestIndex === 2) return "color-yellow";
+  if (guestIndex === 3) return "color-green";
+
+  if (sender && memberColorMap.has(sender)) {
+    const info = memberColorMap.get(sender);
+    if (info.isHost || info.guestIndex === 0) return "color-red";
+    if (info.guestIndex === 1) return "color-blue";
+    if (info.guestIndex === 2) return "color-yellow";
+    if (info.guestIndex === 3) return "color-green";
+  }
+
+  if (sender) {
+    let idx = seenGuestsList.indexOf(sender);
+    if (idx === -1) {
+      seenGuestsList.push(sender);
+      idx = seenGuestsList.length - 1;
+    }
+    const fallbackIdx = idx + 1;
+    if (fallbackIdx === 1) return "color-blue";
+    if (fallbackIdx === 2) return "color-yellow";
+    if (fallbackIdx === 3) return "color-green";
+  }
+
+  return "color-blue";
+}
+
+function appendChatMessage(sender, text, timestamp, isHostMsg, guestIndexMsg) {
+  const container = document.getElementById("room-messages-container");
+  if (!container) return;
+
+  const isSelf = currentRoom && (sender === currentRoom.myAlias);
+  const isHost = (isHostMsg !== undefined) ? isHostMsg : (isSelf ? currentRoom.isHost : false);
+  const guestIndex = (guestIndexMsg !== undefined) ? guestIndexMsg : (isSelf ? currentRoom.guestIndex : undefined);
+
+  if (sender) {
+    memberColorMap.set(sender, {
+      isHost,
+      guestIndex: (guestIndex !== undefined) ? guestIndex : (isHost ? 0 : undefined),
+    });
+  }
+
+  const colorClass = getMemberColorClass(sender, isHost, guestIndex);
+  const role = isSelf ? (currentRoom.isHost ? "host" : "you") : (isHost ? "host" : "peer");
+
+  const block = document.createElement("div");
+  block.className = "kali-msg-block";
+
+  const promptLine = document.createElement("div");
+  promptLine.className = "kali-msg-prompt";
+
+  const corner = document.createElement("span");
+  corner.className = "kali-prompt-corner";
+  corner.textContent = "┌──(";
+
+  const userTag = document.createElement("span");
+  userTag.className = `kali-user-tag ${colorClass}`;
+  userTag.textContent = sender;
+
+  const icon = document.createElement("span");
+  icon.className = `kali-prompt-icon ${colorClass}`;
+  icon.textContent = "㉿";
+
+  const roleTag = document.createElement("span");
+  roleTag.className = `kali-prompt-role ${colorClass}`;
+  roleTag.textContent = role;
+
+  const closeParen = document.createElement("span");
+  closeParen.className = "kali-prompt-corner";
+  closeParen.textContent = ")-[";
+
+  const dirTag = document.createElement("span");
+  dirTag.className = "kali-prompt-dir";
+  dirTag.textContent = "~/room";
+
+  const endBracket = document.createElement("span");
+  endBracket.className = "kali-prompt-corner";
+  endBracket.textContent = "]";
+
+  const timeSpan = document.createElement("span");
+  timeSpan.className = "kali-msg-time";
+  timeSpan.textContent = timestamp
+    ? `[${new Date(timestamp * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}]`
+    : `[${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}]`;
+
+  promptLine.appendChild(corner);
+  promptLine.appendChild(userTag);
+  promptLine.appendChild(icon);
+  promptLine.appendChild(roleTag);
+  promptLine.appendChild(closeParen);
+  promptLine.appendChild(dirTag);
+  promptLine.appendChild(endBracket);
+  promptLine.appendChild(timeSpan);
+
+  const bodyLine = document.createElement("div");
+  bodyLine.className = "kali-msg-body";
+
+  const arrow = document.createElement("span");
+  arrow.className = `kali-arrow ${colorClass}`;
+  arrow.textContent = "└─$";
+
+  const textSpan = document.createElement("span");
+  textSpan.className = "kali-text";
+  textSpan.textContent = text;
+
+  bodyLine.appendChild(arrow);
+  bodyLine.appendChild(textSpan);
+
+  block.appendChild(promptLine);
+  block.appendChild(bodyLine);
+
+  container.appendChild(block);
+  container.scrollTop = container.scrollHeight;
+}
+
+function startRoomCountdown() {
+  if (!currentRoom) return;
+  if (currentRoom.countdownTimer) clearInterval(currentRoom.countdownTimer);
+
+  const timerBadge = document.getElementById("room-timer-badge");
+
+  const tick = () => {
+    if (!currentRoom || currentRoom.isDestroyed) return;
+    const pad = (n) => String(n).padStart(2, "0");
+
+    if (!currentRoom.started || !currentRoom.expiresAt) {
+      const dur = currentRoom.durationSeconds || 600;
+      const m = Math.floor(dur / 60);
+      const s = dur % 60;
+      if (timerBadge) {
+        timerBadge.textContent = `[PENDING: ${pad(m)}:${pad(s)}]`;
+      }
+      return;
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const remaining = Math.max(0, currentRoom.expiresAt - nowSec);
+
+    const m = Math.floor(remaining / 60);
+    const s = remaining % 60;
+
+    if (timerBadge) {
+      timerBadge.textContent = `[REMAINING: ${pad(m)}:${pad(s)}]`;
+    }
+
+    if (remaining <= 0) {
+      if (currentRoom.countdownTimer) {
+        clearInterval(currentRoom.countdownTimer);
+        currentRoom.countdownTimer = null;
+      }
+      showRoomDestroyed("Session expired. All messages have been permanently purged.");
+    }
+  };
+
+  tick();
+  currentRoom.countdownTimer = setInterval(tick, 1000);
+}
+
+function startRoomPolling() {
+  if (!currentRoom) return;
+  if (currentRoom.pollTimer) clearInterval(currentRoom.pollTimer);
+
+  let isPolling = false;
+
+  const poll = async () => {
+    if (!currentRoom || currentRoom.isDestroyed || isPolling) return;
+    if (document.hidden) return; // Adaptive pause when tab backgrounded
+
+    isPolling = true;
+    try {
+      const data = await fetchRoomMessages(currentRoom.roomId, {
+        clientId: currentRoom.clientToken,
+        since: currentRoom.lastMsgIndex,
+      });
+
+      if (!currentRoom || currentRoom.isDestroyed) return;
+
+      const countBadge = document.getElementById("room-count-badge");
+      if (data.active_members !== undefined) {
+        if (countBadge) countBadge.textContent = `[MEMBERS: ${data.active_members}/${currentRoom.maxMembers}]`;
+      }
+
+      if (data.started !== undefined && data.started !== currentRoom.started) {
+        currentRoom.started = data.started;
+      }
+
+      if (data.expires_at && data.started) {
+        currentRoom.expiresAt = data.expires_at;
+      }
+
+      if (Array.isArray(data.messages) && data.messages.length > 0) {
+        for (const msg of data.messages) {
+          try {
+            const decryptedPayload = await decrypt(currentRoom.cryptoKey, msg.ciphertext);
+            let parsed;
+            try {
+              parsed = JSON.parse(decryptedPayload);
+            } catch {
+              parsed = { sender: msg.sender || "Peer", text: decryptedPayload, isHost: false, guestIndex: 1 };
+            }
+
+            if (parsed.sender) {
+              memberColorMap.set(parsed.sender, {
+                isHost: !!parsed.isHost,
+                guestIndex: (parsed.guestIndex !== undefined) ? parsed.guestIndex : (parsed.isHost ? 0 : undefined),
+              });
+            }
+
+            if (parsed.type === "join") {
+              const roleLabel = parsed.isHost ? "HOST" : "GUEST";
+              appendSystemMessage(`user joined session: ${parsed.sender} [${roleLabel}]`);
+            } else if (parsed.type === "leave") {
+              const roleLabel = parsed.isHost ? "HOST" : "GUEST";
+              appendSystemMessage(`user left session: ${parsed.sender} [${roleLabel}]`);
+            } else {
+              appendChatMessage(parsed.sender || msg.sender || "Peer", parsed.text || "", msg.timestamp, parsed.isHost, parsed.guestIndex);
+            }
+          } catch (decErr) {
+            console.warn("Failed to decrypt room message:", decErr);
+          }
+        }
+        currentRoom.lastMsgIndex = (data.total !== undefined) ? data.total : (currentRoom.lastMsgIndex + data.messages.length);
+      }
+    } catch (err) {
+      if (err.status === 404 || (err.message && err.message.includes("404"))) {
+        showRoomDestroyed("This Flash Room was destroyed by the host or expired. All messages permanently purged.");
+        return;
+      }
+      console.warn("Room poll error:", err);
+    } finally {
+      isPolling = false;
+    }
+  };
+
+  poll();
+  currentRoom.pollTimer = setInterval(poll, 2000);
+}
+
+async function startRoomSession() {
+  if (!currentRoom || currentRoom.isDestroyed) return;
+
+  currentRoom.inSession = true;
+  currentRoom.lastMsgIndex = 0; // Always start clean from index 0 to fetch all session messages
+
+  // Update browser URL so refresh doesn't lose the room session
+  if (currentRoom.roomUrl) {
+    try {
+      window.history.replaceState(null, "", currentRoom.roomUrl);
+    } catch (e) {
+      console.warn("history.replaceState error:", e);
+    }
+  }
+
+  showPanel("room-chat");
+  const joinView = document.getElementById("room-join-interstitial");
+  const activeView = document.getElementById("room-chat-active");
+  const destroyedView = document.getElementById("room-destroyed-screen");
+
+  if (joinView) joinView.style.display = "none";
+  if (destroyedView) destroyedView.style.display = "none";
+  if (activeView) activeView.style.display = "block";
+
+  // If host is entering, activate the room timer now!
+  if (currentRoom.isHost && currentRoom.adminToken && !currentRoom.started) {
+    try {
+      const startRes = await startRoom(currentRoom.roomId, currentRoom.adminToken);
+      if (startRes && startRes.expires_at) {
+        currentRoom.expiresAt = startRes.expires_at;
+        currentRoom.started = true;
+      }
+    } catch (err) {
+      console.warn("Failed to activate room timer:", err);
+    }
+  }
+
+  const idBadge = document.getElementById("room-id-badge");
+  const countBadge = document.getElementById("room-count-badge");
+  const roleBadge = document.getElementById("room-role-badge");
+  const destroyBtn = document.getElementById("room-destroy-btn");
+  const leaveBtn = document.getElementById("room-leave-btn");
+  const titleText = document.getElementById("kali-title-text");
+  const inputPrompt = document.getElementById("kali-input-prompt");
+  const promptArrow = document.querySelector(".kali-prompt-arrow");
+
+  // Register self in memberColorMap
+  memberColorMap.set(currentRoom.myAlias, { isHost: currentRoom.isHost, guestIndex: currentRoom.guestIndex });
+
+  const myColorClass = getMemberColorClass(currentRoom.myAlias, currentRoom.isHost, currentRoom.guestIndex);
+  const cleanAlias = (currentRoom.myAlias || (currentRoom.isHost ? "host" : "guest")).replace(/[^a-zA-Z0-9_-]/g, "");
+  if (titleText) titleText.textContent = `${cleanAlias}@flash: ~/room/${currentRoom.roomId.slice(0, 6)}`;
+  if (inputPrompt) {
+    inputPrompt.textContent = `┌──(${cleanAlias}㉿${currentRoom.isHost ? "host" : "peer"})-[~/room]`;
+    inputPrompt.className = `kali-prompt-line ${myColorClass}`;
+  }
+  if (promptArrow) {
+    promptArrow.className = `kali-prompt-arrow ${myColorClass}`;
+  }
+
+  if (idBadge) idBadge.textContent = `[ROOM: ${currentRoom.roomId.slice(0, 6)}]`;
+  if (countBadge) countBadge.textContent = `[MEMBERS: 1/${currentRoom.maxMembers}]`;
+  if (roleBadge) roleBadge.textContent = currentRoom.isHost ? "[HOST]" : "[GUEST]";
+
+  if (destroyBtn) destroyBtn.style.display = currentRoom.isHost ? "inline-block" : "none";
+  if (leaveBtn) leaveBtn.style.display = "inline-block"; // Available to both host and guest
+
+  const msgContainer = document.getElementById("room-messages-container");
+  if (msgContainer) msgContainer.replaceChildren();
+
+  // Broadcast encrypted join announcement to room stream
+  try {
+    const joinPayload = JSON.stringify({
+      type: "join",
+      sender: currentRoom.myAlias,
+      isHost: currentRoom.isHost,
+      guestIndex: currentRoom.guestIndex,
+    });
+    const cipherJoin = await encrypt(currentRoom.cryptoKey, joinPayload);
+    await sendRoomMessage(currentRoom.roomId, {
+      clientId: currentRoom.clientToken,
+      sender: currentRoom.myAlias,
+      ciphertext: cipherJoin,
+    });
+  } catch (noticeErr) {
+    console.warn("Failed to broadcast join notice:", noticeErr);
+  }
+
+  startRoomCountdown();
+  startRoomPolling();
+}
+
+async function sendCurrentRoomMessage() {
+  if (!currentRoom || currentRoom.isDestroyed) return;
+
+  const inputEl = document.getElementById("room-message-input");
+  const sendBtn = document.getElementById("room-send-btn");
+  if (!inputEl) return;
+
+  const text = inputEl.value.trim();
+  if (!text) return;
+
+  inputEl.value = "";
+  inputEl.style.height = "auto";
+  if (sendBtn) sendBtn.disabled = true;
+
+  try {
+    const payload = JSON.stringify({
+      sender: currentRoom.myAlias,
+      text,
+      isHost: currentRoom.isHost,
+      guestIndex: currentRoom.guestIndex,
+    });
+    const ciphertext = await encrypt(currentRoom.cryptoKey, payload);
+
+    await sendRoomMessage(currentRoom.roomId, {
+      clientId: currentRoom.clientToken,
+      sender: currentRoom.myAlias,
+      ciphertext,
+    });
+
+    startRoomPolling();
+  } catch (err) {
+    if (err.status === 404 || (err.message && err.message.includes("404"))) {
+      showRoomDestroyed();
+    } else {
+      toast(err.message || "Failed to send message", "error");
+    }
+  } finally {
+    if (sendBtn) sendBtn.disabled = false;
+    inputEl.focus();
+  }
+}
+
+async function destroyCurrentRoom() {
+  if (!currentRoom) return;
+
+  const confirmed = window.confirm("Are you sure you want to destroy this Flash Room? All participants will be disconnected and all memory wiped immediately.");
+  if (!confirmed) return;
+
+  const roomId = currentRoom.roomId;
+  const adminToken = currentRoom.adminToken;
+
+  sessionStorage.removeItem(`onceflash_room_host_${roomId}`);
+  sessionStorage.removeItem(`onceflash_room_admin_${roomId}`);
+  sessionStorage.removeItem(`onceflash_room_alias_${roomId}`);
+  sessionStorage.removeItem(`onceflash_room_key_${roomId}`);
+  sessionStorage.removeItem(`onceflash_room_url_${roomId}`);
+  sessionStorage.removeItem(`onceflash_room_dur_${roomId}`);
+  sessionStorage.removeItem(`onceflash_room_max_${roomId}`);
+
+  showRoomDestroyed("You destroyed the Flash Room. All data permanently wiped.");
+
+  if (roomId && adminToken) {
+    try {
+      await destroyRoom(roomId, adminToken);
+    } catch (err) {
+      console.warn("Destroy room error:", err);
+    }
+  }
+}
+
+// ─── Flash Room DOM Event Bindings ──────────────────────────────────────────
+
+const createRoomBtn              = document.getElementById("create-room-btn");
+const roomDurationSelect         = document.getElementById("room-duration-select");
+const roomMembersSelect          = document.getElementById("room-members-select");
+const roomAliasInput             = document.getElementById("room-alias-input");
+const roomEnablePasswordCheckbox = document.getElementById("room-enable-password");
+const roomPasswordContainer      = document.getElementById("room-password-container");
+const roomPasswordInput          = document.getElementById("room-password-input");
+
+if (roomEnablePasswordCheckbox && roomPasswordContainer) {
+  roomEnablePasswordCheckbox.addEventListener("change", () => {
+    if (roomEnablePasswordCheckbox.checked) {
+      roomPasswordContainer.style.display = "block";
+      if (roomPasswordInput) roomPasswordInput.focus();
+    } else {
+      roomPasswordContainer.style.display = "none";
+      if (roomPasswordInput) roomPasswordInput.value = "";
+    }
+  });
+}
+
+function getRoomClientId(roomId) {
+  const key = `onceflash_room_cid_${roomId}`;
+  let cid = sessionStorage.getItem(key);
+  if (!cid) {
+    cid = "c_" + Math.random().toString(36).slice(2, 12);
+    sessionStorage.setItem(key, cid);
+  }
+  return cid;
+}
+
+if (createRoomBtn) {
+  createRoomBtn.addEventListener("click", async () => {
+    const duration = parseInt(roomDurationSelect?.value || "900", 10);
+    const maxMembers = parseInt(roomMembersSelect?.value || "4", 10);
+    const alias = roomAliasInput?.value.trim() || "Host";
+    const isPasswordEnabled = !!(roomEnablePasswordCheckbox && roomEnablePasswordCheckbox.checked);
+    const roomPassword = isPasswordEnabled ? (roomPasswordInput?.value || "").trim() : "";
+
+    if (isPasswordEnabled && !roomPassword) {
+      toast("Please enter a room password or uncheck the box", "warning");
+      if (roomPasswordInput) roomPasswordInput.focus();
+      return;
+    }
+
+    createRoomBtn.disabled = true;
+    createRoomBtn.textContent = "[ INITIALIZING ROOM... ]";
+
+    try {
+      const cryptoKey = await generateKey();
+      const keyB64 = await exportKey(cryptoKey);
+
+      const clientToken = "c_" + Math.random().toString(36).slice(2, 12);
+      const res = await createRoom({ durationSeconds: duration, maxMembers, clientId: clientToken });
+
+      sessionStorage.setItem(`onceflash_room_cid_${res.room_id}`, res.client_id || clientToken);
+
+      let roomUrl;
+      if (isPasswordEnabled && roomPassword) {
+        const passphraseMeta = await wrapKeyWithPassphrase(cryptoKey, roomPassword);
+        roomUrl = buildRoomUrl(res.room_id, null, passphraseMeta);
+      } else {
+        roomUrl = buildRoomUrl(res.room_id, keyB64);
+      }
+
+      // Save Host credentials in sessionStorage so refresh preserves Host state seamlessly
+      sessionStorage.setItem(`onceflash_room_host_${res.room_id}`, "true");
+      sessionStorage.setItem(`onceflash_room_admin_${res.room_id}`, res.admin_token);
+      sessionStorage.setItem(`onceflash_room_alias_${res.room_id}`, alias);
+      sessionStorage.setItem(`onceflash_room_key_${res.room_id}`, keyB64);
+      sessionStorage.setItem(`onceflash_room_url_${res.room_id}`, roomUrl);
+      sessionStorage.setItem(`onceflash_room_dur_${res.room_id}`, String(duration));
+      sessionStorage.setItem(`onceflash_room_max_${res.room_id}`, String(maxMembers));
+
+      currentRoom = {
+        roomId: res.room_id,
+        keyB64,
+        cryptoKey,
+        adminToken: res.admin_token,
+        clientToken: res.client_id || clientToken,
+        myAlias: alias,
+        isHost: true,
+        guestIndex: 0,
+        durationSeconds: duration,
+        started: false,
+        expiresAt: 0,
+        maxMembers: res.max_members,
+        lastMsgIndex: 0,
+        inSession: false,
+        pollTimer: null,
+        countdownTimer: null,
+        isDestroyed: false,
+        roomUrl,
+      };
+
+      const roomShareUrlInput = document.getElementById("room-share-url");
+      const roomShareDuration = document.getElementById("room-share-duration");
+      const roomShareCapacity = document.getElementById("room-share-capacity");
+      const roomShareProtection = document.getElementById("room-share-protection");
+      const roomQrContainer   = document.getElementById("room-qr-container");
+
+      if (roomShareUrlInput) roomShareUrlInput.value = roomUrl;
+      if (roomShareDuration) roomShareDuration.textContent = `${Math.round(duration / 60)} minutes`;
+      if (roomShareCapacity) roomShareCapacity.textContent = `${res.max_members} participants`;
+      if (roomShareProtection) roomShareProtection.textContent = (isPasswordEnabled && roomPassword) ? "Password Protected" : "None";
+      if (roomQrContainer) roomQrContainer.style.display = "none";
+
+      if (roomPasswordInput) roomPasswordInput.value = "";
+      if (roomEnablePasswordCheckbox) roomEnablePasswordCheckbox.checked = false;
+      if (roomPasswordContainer) roomPasswordContainer.style.display = "none";
+
+      showPanel("room-share");
+      toast("Flash Room created successfully.", "success");
+    } catch (err) {
+      toast(err.message || "Failed to create Flash Room", "error");
+    } finally {
+      createRoomBtn.disabled = false;
+      createRoomBtn.textContent = "[ CREATE FLASH ROOM ]";
+    }
+  });
+}
+
+const copyRoomUrlBtn = document.getElementById("copy-room-url-btn");
+if (copyRoomUrlBtn) {
+  copyRoomUrlBtn.addEventListener("click", async () => {
+    const input = document.getElementById("room-share-url");
+    if (!input || !input.value) return;
+    try {
+      await navigator.clipboard.writeText(input.value);
+      copyRoomUrlBtn.textContent = "Copied!";
+      toast("Flash Room link copied to clipboard", "success");
+      setTimeout(() => { copyRoomUrlBtn.textContent = "Copy Link"; }, 2000);
+    } catch {
+      input.select();
+      document.execCommand("copy");
+      toast("Link copied to clipboard", "success");
+    }
+  });
+}
+
+const toggleRoomQrBtn = document.getElementById("toggle-room-qr-btn");
+const roomQrContainer = document.getElementById("room-qr-container");
+const roomQrMount     = document.getElementById("room-qr-mount");
+if (toggleRoomQrBtn && roomQrContainer && roomQrMount) {
+  toggleRoomQrBtn.addEventListener("click", () => {
+    if (roomQrContainer.style.display === "block") {
+      roomQrContainer.style.display = "none";
+      toggleRoomQrBtn.textContent = "Show QR Code";
+      return;
+    }
+    const input = document.getElementById("room-share-url");
+    if (!input || !input.value) return;
+
+    if (window.QRCodeGenerator && typeof window.QRCodeGenerator.generateSVG === "function") {
+      try {
+        const svgMarkup = window.QRCodeGenerator.generateSVG(input.value, 4);
+        const parser = new DOMParser();
+        const svgDoc = parser.parseFromString(svgMarkup, "image/svg+xml");
+        roomQrMount.replaceChildren(svgDoc.documentElement);
+        roomQrContainer.style.display = "block";
+        toggleRoomQrBtn.textContent = "Hide QR Code";
+      } catch (err) {
+        toast("Failed to render QR Code locally", "error");
+      }
+    }
+  });
+}
+
+const enterRoomBtn        = document.getElementById("enter-room-btn");
+const shareDestroyRoomBtn = document.getElementById("share-destroy-room-btn");
+if (enterRoomBtn) enterRoomBtn.addEventListener("click", startRoomSession);
+if (shareDestroyRoomBtn) shareDestroyRoomBtn.addEventListener("click", destroyCurrentRoom);
+
+const roomDestroyBtn = document.getElementById("room-destroy-btn");
+const roomLeaveBtn   = document.getElementById("room-leave-btn");
+
+async function leaveCurrentRoom() {
+  if (!currentRoom) return;
+  const roomId = currentRoom.roomId;
+  try {
+    const leavePayload = JSON.stringify({
+      type: "leave",
+      sender: currentRoom.myAlias,
+      isHost: currentRoom.isHost,
+      guestIndex: currentRoom.guestIndex,
+    });
+    const cipherLeave = await encrypt(currentRoom.cryptoKey, leavePayload);
+    await sendRoomMessage(roomId, {
+      clientId: currentRoom.clientToken,
+      sender: currentRoom.myAlias,
+      ciphertext: cipherLeave,
+    });
+  } catch (e) {
+    console.warn("Leave broadcast error:", e);
+  }
+
+  sessionStorage.removeItem(`onceflash_room_host_${roomId}`);
+  sessionStorage.removeItem(`onceflash_room_admin_${roomId}`);
+  sessionStorage.removeItem(`onceflash_room_alias_${roomId}`);
+  sessionStorage.removeItem(`onceflash_room_key_${roomId}`);
+  sessionStorage.removeItem(`onceflash_room_url_${roomId}`);
+  sessionStorage.removeItem(`onceflash_room_dur_${roomId}`);
+  sessionStorage.removeItem(`onceflash_room_max_${roomId}`);
+
+  showRoomDestroyed("You left the Flash Room.");
+}
+
+if (roomDestroyBtn) roomDestroyBtn.addEventListener("click", destroyCurrentRoom);
+if (roomLeaveBtn)   roomLeaveBtn.addEventListener("click", leaveCurrentRoom);
+
+const roomSendBtn      = document.getElementById("room-send-btn");
+const roomMessageInput = document.getElementById("room-message-input");
+
+if (roomSendBtn) roomSendBtn.addEventListener("click", sendCurrentRoomMessage);
+
+if (roomMessageInput) {
+  roomMessageInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendCurrentRoomMessage();
+    }
+  });
+
+  roomMessageInput.addEventListener("input", () => {
+    roomMessageInput.style.height = "auto";
+    roomMessageInput.style.height = Math.min(roomMessageInput.scrollHeight, 120) + "px";
+  });
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && currentRoom && !currentRoom.isDestroyed && currentRoom.inSession) {
+    startRoomPolling();
+  }
+});
+
+window.addEventListener("beforeunload", () => {
+  if (currentRoom) {
+    purgeRoomMemory();
+  }
+});
+
+// ─── Guest Room Page Initialization ──────────────────────────────────────────
+
+async function initRoomPage() {
+  const parsed = parseRoomHash();
+  const roomId = parsed.roomId;
+
+  if (!roomId || (!parsed.keyB64 && !parsed.isPassphraseProtected)) {
+    showRoomDestroyed("Invalid Flash Room link. Decryption key is missing from URL fragment.");
+    return;
+  }
+
+  // Check if current user is the host who refreshed this room
+  const isSavedHost = sessionStorage.getItem(`onceflash_room_host_${roomId}`) === "true";
+  if (isSavedHost) {
+    const savedAdmin = sessionStorage.getItem(`onceflash_room_admin_${roomId}`);
+    const savedAlias = sessionStorage.getItem(`onceflash_room_alias_${roomId}`) || "Host";
+    const savedKeyB64 = sessionStorage.getItem(`onceflash_room_key_${roomId}`) || parsed.keyB64;
+    const savedUrl = sessionStorage.getItem(`onceflash_room_url_${roomId}`) || window.location.href;
+    const savedDur = parseInt(sessionStorage.getItem(`onceflash_room_dur_${roomId}`) || "900", 10);
+    const savedMax = parseInt(sessionStorage.getItem(`onceflash_room_max_${roomId}`) || "4", 10);
+    const clientToken = getRoomClientId(roomId);
+
+    let cryptoKey = null;
+    try {
+      if (savedKeyB64) {
+        cryptoKey = await importRoomKey(savedKeyB64);
+      }
+    } catch (kErr) {
+      console.warn("Failed to import saved host key:", kErr);
+    }
+
+    if (cryptoKey && savedAdmin) {
+      const info = await fetchRoomInfo(roomId).catch(() => ({}));
+      currentRoom = {
+        roomId,
+        keyB64: savedKeyB64,
+        cryptoKey,
+        adminToken: savedAdmin,
+        clientToken,
+        myAlias: savedAlias,
+        isHost: true,
+        guestIndex: 0,
+        durationSeconds: info.duration_seconds || savedDur,
+        started: !!info.started,
+        expiresAt: info.expires_at || 0,
+        maxMembers: info.max_members || savedMax,
+        lastMsgIndex: 0,
+        inSession: false,
+        pollTimer: null,
+        countdownTimer: null,
+        isDestroyed: false,
+        roomUrl: savedUrl,
+      };
+      memberColorMap.set(savedAlias, { isHost: true, guestIndex: 0 });
+      await startRoomSession();
+      return;
+    }
+  }
+
+  showPanel("room-chat");
+  const joinView = document.getElementById("room-join-interstitial");
+  const activeView = document.getElementById("room-chat-active");
+  const destroyedView = document.getElementById("room-destroyed-screen");
+  const guestPassContainer = document.getElementById("room-guest-password-container");
+  const guestPassInput = document.getElementById("room-guest-password-input");
+
+  if (activeView) activeView.style.display = "none";
+  if (destroyedView) destroyedView.style.display = "none";
+  if (joinView) joinView.style.display = "block";
+
+  if (guestPassContainer) {
+    guestPassContainer.style.display = parsed.isPassphraseProtected ? "block" : "none";
+    if (guestPassInput) guestPassInput.value = "";
+  }
+
+  try {
+    const info = await fetchRoomInfo(roomId);
+
+    const capacityVal = document.getElementById("room-join-capacity-val");
+    const expiresVal  = document.getElementById("room-join-expires-val");
+
+    if (capacityVal) {
+      capacityVal.textContent = `${info.active_members || 1} / ${info.max_members} Active`;
+    }
+    if (expiresVal) {
+      if (!info.started) {
+        expiresVal.textContent = `${Math.round((info.duration_seconds || 600) / 60)} min`;
+      } else {
+        const nowSec = Math.floor(Date.now() / 1000);
+        const leftSec = Math.max(0, info.expires_at - nowSec);
+        expiresVal.textContent = formatTtl(leftSec);
+      }
+    }
+
+    const confirmJoinBtn  = document.getElementById("confirm-join-room-btn");
+    const guestAliasInput = document.getElementById("room-guest-alias-input");
+
+    const hasSavedToken = !!sessionStorage.getItem(`onceflash_room_cid_${roomId}`);
+    const isRoomFull = (info.is_full || (info.total_joined !== undefined && info.total_joined >= info.max_members)) && !hasSavedToken;
+
+    if (confirmJoinBtn) {
+      const newBtn = confirmJoinBtn.cloneNode(true);
+      confirmJoinBtn.parentNode.replaceChild(newBtn, confirmJoinBtn);
+
+      if (isRoomFull) {
+        newBtn.disabled = true;
+        newBtn.textContent = "[ ROOM FULL ]";
+        toast("This Flash Room has reached maximum capacity. Session is locked.", "warning");
+      } else {
+        newBtn.disabled = false;
+        newBtn.textContent = "[ JOIN ROOM ]";
+
+        const handleJoinClick = async () => {
+          let cryptoKey = null;
+          let keyB64 = parsed.keyB64;
+
+          if (parsed.isPassphraseProtected) {
+            const pass = (guestPassInput?.value || "").trim();
+            if (!pass) {
+              toast("Please enter the room password to join.", "warning");
+              if (guestPassInput) guestPassInput.focus();
+              return;
+            }
+            newBtn.disabled = true;
+            newBtn.textContent = "[ UNLOCKING... ]";
+            try {
+              cryptoKey = await unwrapKeyWithPassphrase(parsed.wrappedKeyB64, parsed.saltB64, pass, ["encrypt", "decrypt"], true);
+              try {
+                keyB64 = await exportKey(cryptoKey);
+              } catch (expErr) {
+                console.warn("Could not re-export key:", expErr);
+              }
+            } catch (pwErr) {
+              console.error("Room unlock error:", pwErr);
+              toast("Incorrect room password. Decryption failed.", "error");
+              newBtn.disabled = false;
+              newBtn.textContent = "[ JOIN ROOM ]";
+              if (guestPassInput) guestPassInput.focus();
+              return;
+            }
+          } else {
+            try {
+              cryptoKey = await importRoomKey(parsed.keyB64);
+            } catch (err) {
+              showRoomDestroyed("Failed to import decryption key.");
+              return;
+            }
+          }
+
+          newBtn.disabled = true;
+          newBtn.textContent = "[ JOINING... ]";
+
+          const alias = guestAliasInput?.value.trim() || `Guest-${Math.random().toString(36).slice(2, 6)}`;
+          const clientToken = getRoomClientId(roomId);
+
+          try {
+            const joinRes = await joinRoom(roomId, clientToken);
+            const guestIndex = (joinRes.guest_index !== undefined) ? joinRes.guest_index : 1;
+
+            currentRoom = {
+              roomId,
+              keyB64,
+              cryptoKey,
+              adminToken: null,
+              clientToken,
+              myAlias: alias,
+              isHost: false,
+              guestIndex,
+              durationSeconds: joinRes.duration_seconds || info.duration_seconds || 600,
+              started: !!joinRes.started,
+              expiresAt: joinRes.expires_at || 0,
+              maxMembers: joinRes.max_members,
+              lastMsgIndex: 0,
+              inSession: false,
+              pollTimer: null,
+              countdownTimer: null,
+              isDestroyed: false,
+              roomUrl: window.location.href,
+            };
+
+            memberColorMap.set(alias, { isHost: false, guestIndex });
+
+            startRoomSession();
+          } catch (joinErr) {
+            if (joinErr.status === 403 || (joinErr.message && joinErr.message.includes("capacity"))) {
+              newBtn.disabled = true;
+              newBtn.textContent = "[ ROOM FULL ]";
+              toast("Room capacity reached. Session is locked to new participants.", "error");
+            } else {
+              toast(joinErr.message || "Failed to join room", "error");
+              newBtn.disabled = false;
+              newBtn.textContent = "[ JOIN ROOM ]";
+            }
+          }
+        };
+
+        newBtn.addEventListener("click", handleJoinClick);
+
+        if (guestPassInput) {
+          guestPassInput.onkeydown = (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              newBtn.click();
+            }
+          };
+        }
+        if (guestAliasInput) {
+          guestAliasInput.onkeydown = (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              newBtn.click();
+            }
+          };
+        }
+      }
+    }
+  } catch (err) {
+    if (err.status === 404 || (err.message && err.message.includes("404"))) {
+      showRoomDestroyed("This Flash Room has expired or was destroyed.");
+    } else {
+      showRoomDestroyed(err.message || "Unable to access Flash Room.");
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Initial Route Detection
 // ─────────────────────────────────────────────────────────────────────────────
 
 const initialPath = window.location.pathname;
 if (initialPath.startsWith("/view/")) {
   initViewPage();
+} else if (initialPath.startsWith("/room/")) {
+  initRoomPage();
 } else {
   showPanel("create");
 }
