@@ -452,8 +452,14 @@ function bufferToBase64(buffer) {
 }
 
 function base64ToBuffer(b64) {
+  if (!b64 || typeof b64 !== "string") {
+    throw new Error("Invalid cryptographic input: base64 string required");
+  }
+  const clean = b64.trim();
+  if (!clean) {
+    throw new Error("Invalid cryptographic input: empty base64 string");
+  }
   // Handle base64url by converting to standard base64
-  let clean = String(b64).trim();
   const standard = clean.replace(/-/g, "+").replace(/_/g, "/");
   const binary = atob(standard);
   const bytes = new Uint8Array(binary.length);
@@ -469,12 +475,17 @@ function bufferToBase64url(buffer) {
 }
 
 function base64urlToBuffer(b64url) {
-  if (!b64url) return new Uint8Array(0);
-  let clean = String(b64url).trim();
+  if (!b64url || typeof b64url !== "string") {
+    throw new Error("Invalid cryptographic input: base64url string required");
+  }
+  let clean = b64url.trim();
   try {
     clean = decodeURIComponent(clean);
   } catch {}
   clean = clean.replace(/\/+$/, "").trim().replace(/[^A-Za-z0-9_-]/g, "");
+  if (!clean) {
+    throw new Error("Invalid cryptographic input: empty base64url string");
+  }
   // Pad to multiple of 4
   const standard = clean.replace(/-/g, "+").replace(/_/g, "/");
   const padded = standard + "=".repeat((4 - (standard.length % 4)) % 4);
