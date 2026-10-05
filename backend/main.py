@@ -106,6 +106,7 @@ class InMemoryStore:
         self._room_members: dict[str, dict[str, float]] = {}
         self._room_joined: dict[str, set[str]] = {}
         self._room_joined_order: dict[str, list[str]] = {}
+        self._room_seq: dict[str, int] = {}
         self._lock = asyncio.Lock()
 
     async def ping(self):
@@ -138,6 +139,7 @@ class InMemoryStore:
             self._room_members.pop(k, None)
             self._room_joined.pop(k, None)
             self._room_joined_order.pop(k, None)
+            self._room_seq.pop(k, None)
 
     async def set_paste(self, key: str, mapping: dict, ttl_seconds: int):
         async with self._lock:
@@ -237,6 +239,7 @@ class InMemoryStore:
             self._room_members[room_id] = {host_client_id: now}
             self._room_joined[room_id] = {host_client_id}
             self._room_joined_order[room_id] = [host_client_id]
+            self._room_seq[room_id] = 0
             return True
 
     async def start_room(self, room_id: str, admin_token: str) -> dict | None:
@@ -334,7 +337,11 @@ class InMemoryStore:
             if room_id not in self._rooms:
                 return None
             now = time.time()
+            seq = self._room_seq.get(room_id, 0) + 1
+            self._room_seq[room_id] = seq
             msg = {
+                "id": f"{room_id}_{seq}",
+                "seq": seq,
                 "sender": sender,
                 "ciphertext": ciphertext,
                 "iv": iv,
@@ -342,8 +349,8 @@ class InMemoryStore:
             }
             msgs = self._room_messages.setdefault(room_id, [])
             msgs.append(msg)
-            if len(msgs) > 50:
-                self._room_messages[room_id] = msgs[-50:]
+            if len(msgs) > 2000:
+                self._room_messages[room_id] = msgs[-2000:]
             return msg
 
     async def get_room_messages(self, room_id: str, since_index: int, client_id: str) -> tuple[list[dict], int, dict] | None:
@@ -368,8 +375,13 @@ class InMemoryStore:
                 members[client_id] = now
 
             msgs = self._room_messages.get(room_id, [])
+            if since_index == 0:
+                new_msgs = list(msgs)
+            else:
+                new_msgs = [m for m in msgs if m.get("seq", 0) > since_index]
+
             total = len(msgs)
-            new_msgs = msgs[since_index:] if since_index < total else []
+            current_seq = self._room_seq.get(room_id, total)
             started = room.get("started", False)
             ttl_left = max(0, int(self._room_expires.get(room_id, 0) - now)) if started else room["duration_seconds"]
             active_count = len([m for m, seen in members.items() if m == host_client_id or (now - seen <= 45)])
@@ -382,9 +394,10 @@ class InMemoryStore:
                 "total_joined": len(joined),
                 "is_full": len(joined) >= room["max_members"],
                 "total_messages": total,
+                "current_seq": current_seq,
                 "started": started,
             }
-            return new_msgs, total, meta
+            return new_msgs, current_seq, meta
 
     async def delete_room(self, room_id: str, admin_token: str) -> bool:
         async with self._lock:
@@ -399,6 +412,7 @@ class InMemoryStore:
             self._room_members.pop(room_id, None)
             self._room_joined.pop(room_id, None)
             self._room_joined_order.pop(room_id, None)
+            self._room_seq.pop(room_id, None)
             return True
 
 
@@ -718,7 +732,12 @@ class StorageManager:
             ttl = await self.redis.ttl(meta_key)
             if ttl <= 0:
                 return None
+            seq_key = f"room:{room_id}:seq"
+            seq = await self.redis.incr(seq_key)
+            await self.redis.expire(seq_key, max(1, ttl))
             msg = {
+                "id": f"{room_id}_{seq}",
+                "seq": seq,
                 "sender": sender,
                 "ciphertext": ciphertext,
                 "iv": iv,
@@ -728,7 +747,7 @@ class StorageManager:
             msgs_key = f"room:{room_id}:msgs"
             pipe = self.redis.pipeline()
             pipe.rpush(msgs_key, json.dumps(msg))
-            pipe.ltrim(msgs_key, -50, -1)
+            pipe.ltrim(msgs_key, -2000, -1)
             pipe.expire(msgs_key, max(1, ttl))
             await pipe.execute()
             return msg
@@ -771,16 +790,21 @@ class StorageManager:
                 await self.redis.hset(members_key, client_id, str(now))
 
             msgs_key = f"room:{room_id}:msgs"
-            raw_msgs = await self.redis.lrange(msgs_key, since_index, -1)
-            total = await self.redis.llen(msgs_key)
+            raw_msgs = await self.redis.lrange(msgs_key, 0, -1)
             import json
             messages = []
             for m in raw_msgs:
                 s = m.decode() if isinstance(m, bytes) else str(m)
                 try:
-                    messages.append(json.loads(s))
+                    parsed_m = json.loads(s)
+                    if since_index == 0 or parsed_m.get("seq", 0) > since_index:
+                        messages.append(parsed_m)
                 except Exception:
                     pass
+            seq_key = f"room:{room_id}:seq"
+            curr_seq_raw = await self.redis.get(seq_key)
+            current_seq = int(curr_seq_raw.decode() if isinstance(curr_seq_raw, bytes) else curr_seq_raw) if curr_seq_raw else len(raw_msgs)
+
             active_count = len([m for m, seen in members.items() if m == host_client_id or (now - seen <= 45)])
             total_joined = await self.redis.scard(joined_key)
             meta_resp = {
@@ -791,10 +815,11 @@ class StorageManager:
                 "active_members": max(1, active_count),
                 "total_joined": total_joined,
                 "is_full": total_joined >= max_members,
-                "total_messages": total,
+                "total_messages": len(raw_msgs),
+                "current_seq": current_seq,
                 "started": started,
             }
-            return messages, total, meta_resp
+            return messages, current_seq, meta_resp
         else:
             return await self.memory.get_room_messages(room_id, since_index, client_id)
 
@@ -810,6 +835,7 @@ class StorageManager:
             pipe = self.redis.pipeline()
             pipe.delete(meta_key)
             pipe.delete(f"room:{room_id}:msgs")
+            pipe.delete(f"room:{room_id}:seq")
             pipe.delete(f"room:{room_id}:members")
             pipe.delete(f"room:{room_id}:joined")
             pipe.delete(f"room:{room_id}:order")
@@ -1439,7 +1465,7 @@ async def join_room(
     "/api/room/{room_id}/msg",
     summary="Send encrypted message to room",
 )
-@limiter.limit("60/minute")
+@limiter.limit("180/minute")
 async def send_room_message(
     request: Request,
     room_id: str,
@@ -1469,7 +1495,7 @@ async def send_room_message(
     "/api/room/{room_id}/msgs",
     summary="Poll messages from room",
 )
-@limiter.limit("120/minute")
+@limiter.limit("240/minute")
 async def get_room_messages(
     request: Request,
     room_id: str,
@@ -1481,11 +1507,12 @@ async def get_room_messages(
     res = await storage.get_room_messages(room_id, since, client_id)
     if res is None:
         raise HTTPException(status_code=404, detail="Room not found or expired")
-    messages, total, meta = res
+    messages, current_seq, meta = res
     return JSONResponse(
         content={
             "messages": messages,
-            "total": total,
+            "total": meta.get("total_messages", len(messages)),
+            "current_seq": current_seq,
             **meta,
         },
         headers={

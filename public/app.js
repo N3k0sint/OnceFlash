@@ -214,6 +214,74 @@ function toast(message, type = "info", duration = 3200) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Custom Confirmation Modal (Zero Glassmorphism, Clean Solid Pro UI, No Emoji)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function showConfirmModal({
+  title = "Confirm Action",
+  tag = "[ CONFIRM ACTION ]",
+  message = "Are you sure you want to proceed?",
+  confirmText = "Confirm",
+  cancelText = "Cancel",
+  danger = true,
+} = {}) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById("confirm-modal");
+    const titleEl = document.getElementById("confirm-modal-title");
+    const tagEl = document.getElementById("confirm-modal-tag");
+    const msgEl = document.getElementById("confirm-modal-message");
+    const okBtn = document.getElementById("confirm-modal-ok-btn");
+    const cancelBtn = document.getElementById("confirm-modal-cancel-btn");
+
+    if (!modal) {
+      return resolve(window.confirm(message));
+    }
+
+    if (titleEl) titleEl.textContent = title;
+    if (tagEl) {
+      tagEl.textContent = tag;
+      tagEl.style.color = danger ? "#ff7b72" : "var(--brand-cyan, #00ffc8)";
+    }
+    if (msgEl) msgEl.textContent = message;
+    if (okBtn) {
+      okBtn.textContent = confirmText;
+      okBtn.className = danger ? "btn-danger" : "btn-primary";
+    }
+    if (cancelBtn) cancelBtn.textContent = cancelText;
+
+    const cleanup = () => {
+      modal.style.display = "none";
+      document.removeEventListener("keydown", keyHandler);
+      okBtn?.removeEventListener("click", onOk);
+      cancelBtn?.removeEventListener("click", onCancel);
+      modal.removeEventListener("click", onBackdrop);
+    };
+
+    const onOk = () => { cleanup(); resolve(true); };
+    const onCancel = () => { cleanup(); resolve(false); };
+    const onBackdrop = (e) => {
+      if (e.target === modal) { cleanup(); resolve(false); }
+    };
+    const keyHandler = (e) => {
+      if (e.key === "Escape") { cleanup(); resolve(false); }
+      if (e.key === "Enter" && document.activeElement !== cancelBtn) {
+        e.preventDefault();
+        cleanup();
+        resolve(true);
+      }
+    };
+
+    okBtn?.addEventListener("click", onOk);
+    cancelBtn?.addEventListener("click", onCancel);
+    modal.addEventListener("click", onBackdrop);
+    document.addEventListener("keydown", keyHandler);
+
+    modal.style.display = "flex";
+    okBtn?.focus();
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Panels Router
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -742,7 +810,14 @@ const burnNowBtn = document.getElementById("burn-now-btn");
 if (burnNowBtn) {
   burnNowBtn.addEventListener("click", async () => {
     if (!createdPasteId) return;
-    const confirmBurn = window.confirm("Are you sure? This will permanently delete the encrypted note from the server immediately.");
+    const confirmBurn = await showConfirmModal({
+      title: "Destroy Note Permanently",
+      tag: "[ PERMANENT PURGE ]",
+      message: "Are you sure? This will permanently delete the encrypted note from the server immediately.",
+      confirmText: "Destroy Note",
+      cancelText: "Cancel",
+      danger: true,
+    });
     if (!confirmBurn) return;
 
     try {
@@ -1118,7 +1193,14 @@ if (copyDecryptedBtn) {
 // Allow recipients to burn remaining views of multi-view notes.
 // For single-view notes the paste is already gone — we just inform them.
 async function handleReceiverDestroy() {
-  const confirmed = window.confirm("Destroy this note? Screen memory will be wiped and no further access will be possible.");
+  const confirmed = await showConfirmModal({
+    title: "Destroy Note",
+    tag: "[ CLIENT PURGE ]",
+    message: "Destroy this note? Screen memory will be wiped and no further access will be possible.",
+    confirmText: "Destroy Note",
+    cancelText: "Cancel",
+    danger: true,
+  });
   if (!confirmed) return;
 
   // Immediately cancel any active countdown timer so it doesn't keep running
@@ -1196,8 +1278,14 @@ function appendSystemMessage(text) {
   const container = document.getElementById("room-messages-container");
   if (!container) return;
 
+  const lastChild = container.lastElementChild;
+  if (lastChild && lastChild.dataset.sysMsg === text) {
+    return;
+  }
+
   const line = document.createElement("div");
   line.className = "kali-sys-line";
+  line.dataset.sysMsg = text;
 
   const icon = document.createElement("span");
   icon.className = "kali-sys-icon";
@@ -1248,6 +1336,12 @@ function appendChatMessage(sender, text, timestamp, isHostMsg, guestIndexMsg) {
   const container = document.getElementById("room-messages-container");
   if (!container) return;
 
+  const sig = `${sender}_${timestamp}_${text}`;
+  const lastChild = container.lastElementChild;
+  if (lastChild && lastChild.dataset.msgSig === sig) {
+    return; // Prevent duplicate rendering of identical message
+  }
+
   const isSelf = currentRoom && (sender === currentRoom.myAlias);
   const isHost = (isHostMsg !== undefined) ? isHostMsg : (isSelf ? currentRoom.isHost : false);
   const guestIndex = (guestIndexMsg !== undefined) ? guestIndexMsg : (isSelf ? currentRoom.guestIndex : undefined);
@@ -1264,6 +1358,7 @@ function appendChatMessage(sender, text, timestamp, isHostMsg, guestIndexMsg) {
 
   const block = document.createElement("div");
   block.className = "kali-msg-block";
+  block.dataset.msgSig = sig;
 
   const promptLine = document.createElement("div");
   promptLine.className = "kali-msg-prompt";
@@ -1375,84 +1470,99 @@ function startRoomCountdown() {
   currentRoom.countdownTimer = setInterval(tick, 1000);
 }
 
+async function executeRoomPoll() {
+  if (!currentRoom || currentRoom.isDestroyed || currentRoom.isPolling) return;
+  if (document.hidden) return; // Adaptive pause when tab backgrounded
+
+  currentRoom.isPolling = true;
+  try {
+    const data = await fetchRoomMessages(currentRoom.roomId, {
+      clientId: currentRoom.clientToken,
+      since: currentRoom.lastMsgIndex || 0,
+    });
+
+    if (!currentRoom || currentRoom.isDestroyed) return;
+
+    const countBadge = document.getElementById("room-count-badge");
+    if (data.active_members !== undefined) {
+      if (countBadge) countBadge.textContent = `[MEMBERS: ${data.active_members}/${currentRoom.maxMembers}]`;
+    }
+
+    if (data.started !== undefined && data.started !== currentRoom.started) {
+      currentRoom.started = data.started;
+    }
+
+    if (data.expires_at && data.started) {
+      currentRoom.expiresAt = data.expires_at;
+    }
+
+    if (!currentRoom.seenMsgIds) {
+      currentRoom.seenMsgIds = new Set();
+    }
+
+    if (Array.isArray(data.messages) && data.messages.length > 0) {
+      for (const msg of data.messages) {
+        // Robust deduplication across all clients and poll cycles
+        const msgId = msg.id || (msg.seq ? `seq_${msg.seq}` : `${msg.timestamp}_${msg.sender}_${(msg.ciphertext || "").slice(0, 32)}`);
+        if (currentRoom.seenMsgIds.has(msgId)) {
+          continue;
+        }
+        currentRoom.seenMsgIds.add(msgId);
+
+        try {
+          const decryptedPayload = await decrypt(currentRoom.cryptoKey, msg.ciphertext);
+          let parsed;
+          try {
+            parsed = JSON.parse(decryptedPayload);
+          } catch {
+            parsed = { sender: msg.sender || "Peer", text: decryptedPayload, isHost: false, guestIndex: 1 };
+          }
+
+          if (parsed.sender) {
+            memberColorMap.set(parsed.sender, {
+              isHost: !!parsed.isHost,
+              guestIndex: (parsed.guestIndex !== undefined) ? parsed.guestIndex : (parsed.isHost ? 0 : undefined),
+            });
+          }
+
+          if (parsed.type === "join") {
+            const roleLabel = parsed.isHost ? "HOST" : "GUEST";
+            appendSystemMessage(`user joined session: ${parsed.sender} [${roleLabel}]`);
+          } else if (parsed.type === "leave") {
+            const roleLabel = parsed.isHost ? "HOST" : "GUEST";
+            appendSystemMessage(`user left session: ${parsed.sender} [${roleLabel}]`);
+          } else {
+            appendChatMessage(parsed.sender || msg.sender || "Peer", parsed.text || "", msg.timestamp, parsed.isHost, parsed.guestIndex);
+          }
+        } catch (decErr) {
+          console.warn("Failed to decrypt room message:", decErr);
+        }
+      }
+    }
+
+    // Monotonic sequence tracking: ensures no messages are missed even with high volume
+    if (data.current_seq !== undefined) {
+      currentRoom.lastMsgIndex = Math.max(currentRoom.lastMsgIndex || 0, data.current_seq);
+    } else if (data.total !== undefined) {
+      currentRoom.lastMsgIndex = Math.max(currentRoom.lastMsgIndex || 0, data.total);
+    }
+  } catch (err) {
+    if (err.status === 404 || (err.message && err.message.includes("404"))) {
+      showRoomDestroyed("This Flash Room was destroyed by the host or expired. All messages permanently purged.");
+      return;
+    }
+    console.warn("Room poll error:", err);
+  } finally {
+    if (currentRoom) currentRoom.isPolling = false;
+  }
+}
+
 function startRoomPolling() {
   if (!currentRoom) return;
   if (currentRoom.pollTimer) clearInterval(currentRoom.pollTimer);
 
-  let isPolling = false;
-
-  const poll = async () => {
-    if (!currentRoom || currentRoom.isDestroyed || isPolling) return;
-    if (document.hidden) return; // Adaptive pause when tab backgrounded
-
-    isPolling = true;
-    try {
-      const data = await fetchRoomMessages(currentRoom.roomId, {
-        clientId: currentRoom.clientToken,
-        since: currentRoom.lastMsgIndex,
-      });
-
-      if (!currentRoom || currentRoom.isDestroyed) return;
-
-      const countBadge = document.getElementById("room-count-badge");
-      if (data.active_members !== undefined) {
-        if (countBadge) countBadge.textContent = `[MEMBERS: ${data.active_members}/${currentRoom.maxMembers}]`;
-      }
-
-      if (data.started !== undefined && data.started !== currentRoom.started) {
-        currentRoom.started = data.started;
-      }
-
-      if (data.expires_at && data.started) {
-        currentRoom.expiresAt = data.expires_at;
-      }
-
-      if (Array.isArray(data.messages) && data.messages.length > 0) {
-        for (const msg of data.messages) {
-          try {
-            const decryptedPayload = await decrypt(currentRoom.cryptoKey, msg.ciphertext);
-            let parsed;
-            try {
-              parsed = JSON.parse(decryptedPayload);
-            } catch {
-              parsed = { sender: msg.sender || "Peer", text: decryptedPayload, isHost: false, guestIndex: 1 };
-            }
-
-            if (parsed.sender) {
-              memberColorMap.set(parsed.sender, {
-                isHost: !!parsed.isHost,
-                guestIndex: (parsed.guestIndex !== undefined) ? parsed.guestIndex : (parsed.isHost ? 0 : undefined),
-              });
-            }
-
-            if (parsed.type === "join") {
-              const roleLabel = parsed.isHost ? "HOST" : "GUEST";
-              appendSystemMessage(`user joined session: ${parsed.sender} [${roleLabel}]`);
-            } else if (parsed.type === "leave") {
-              const roleLabel = parsed.isHost ? "HOST" : "GUEST";
-              appendSystemMessage(`user left session: ${parsed.sender} [${roleLabel}]`);
-            } else {
-              appendChatMessage(parsed.sender || msg.sender || "Peer", parsed.text || "", msg.timestamp, parsed.isHost, parsed.guestIndex);
-            }
-          } catch (decErr) {
-            console.warn("Failed to decrypt room message:", decErr);
-          }
-        }
-        currentRoom.lastMsgIndex = (data.total !== undefined) ? data.total : (currentRoom.lastMsgIndex + data.messages.length);
-      }
-    } catch (err) {
-      if (err.status === 404 || (err.message && err.message.includes("404"))) {
-        showRoomDestroyed("This Flash Room was destroyed by the host or expired. All messages permanently purged.");
-        return;
-      }
-      console.warn("Room poll error:", err);
-    } finally {
-      isPolling = false;
-    }
-  };
-
-  poll();
-  currentRoom.pollTimer = setInterval(poll, 2000);
+  executeRoomPoll();
+  currentRoom.pollTimer = setInterval(executeRoomPoll, 2000);
 }
 
 async function startRoomSession() {
@@ -1460,6 +1570,7 @@ async function startRoomSession() {
 
   currentRoom.inSession = true;
   currentRoom.lastMsgIndex = 0; // Always start clean from index 0 to fetch all session messages
+  currentRoom.seenMsgIds = new Set();
 
   // Update browser URL so refresh doesn't lose the room session
   if (currentRoom.roomUrl) {
@@ -1576,7 +1687,7 @@ async function sendCurrentRoomMessage() {
       ciphertext,
     });
 
-    startRoomPolling();
+    executeRoomPoll();
   } catch (err) {
     if (err.status === 404 || (err.message && err.message.includes("404"))) {
       showRoomDestroyed();
@@ -1592,7 +1703,14 @@ async function sendCurrentRoomMessage() {
 async function destroyCurrentRoom() {
   if (!currentRoom) return;
 
-  const confirmed = window.confirm("Are you sure you want to destroy this Flash Room? All participants will be disconnected and all memory wiped immediately.");
+  const confirmed = await showConfirmModal({
+    title: "Destroy Flash Room",
+    tag: "[ ROOM PURGE ]",
+    message: "Are you sure you want to destroy this Flash Room? All participants will be disconnected and all memory wiped immediately.",
+    confirmText: "Destroy Room",
+    cancelText: "Cancel",
+    danger: true,
+  });
   if (!confirmed) return;
 
   const roomId = currentRoom.roomId;
@@ -1706,6 +1824,8 @@ if (createRoomBtn) {
         expiresAt: 0,
         maxMembers: res.max_members,
         lastMsgIndex: 0,
+        seenMsgIds: new Set(),
+        isPolling: false,
         inSession: false,
         pollTimer: null,
         countdownTimer: null,
@@ -1835,7 +1955,11 @@ if (roomSendBtn) roomSendBtn.addEventListener("click", sendCurrentRoomMessage);
 
 if (roomMessageInput) {
   roomMessageInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    // On mobile / touch devices, virtual keyboards lack Shift modifier.
+    // Allow Enter key to naturally insert a newline (words go down) and auto-expand,
+    // while sending is performed via the dedicated [ SEND ] button.
+    const isTouchOrMobile = window.matchMedia("(max-width: 768px)").matches || ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
+    if (!isTouchOrMobile && e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendCurrentRoomMessage();
     }
@@ -1906,6 +2030,8 @@ async function initRoomPage() {
         expiresAt: info.expires_at || 0,
         maxMembers: info.max_members || savedMax,
         lastMsgIndex: 0,
+        seenMsgIds: new Set(),
+        isPolling: false,
         inSession: false,
         pollTimer: null,
         countdownTimer: null,
@@ -2032,6 +2158,8 @@ async function initRoomPage() {
               expiresAt: joinRes.expires_at || 0,
               maxMembers: joinRes.max_members,
               lastMsgIndex: 0,
+              seenMsgIds: new Set(),
+              isPolling: false,
               inSession: false,
               pollTimer: null,
               countdownTimer: null,
