@@ -40,6 +40,7 @@ import {
   sendRoomMessage,
   fetchRoomMessages,
   destroyRoom,
+  leaveRoom,
 } from "./api.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1569,6 +1570,7 @@ async function startRoomSession() {
   if (!currentRoom || currentRoom.isDestroyed) return;
 
   currentRoom.inSession = true;
+  sessionStorage.setItem(`onceflash_room_active_${currentRoom.roomId}`, "true");
   currentRoom.lastMsgIndex = 0; // Always start clean from index 0 to fetch all session messages
   currentRoom.seenMsgIds = new Set();
 
@@ -1724,6 +1726,15 @@ async function destroyCurrentRoom() {
   sessionStorage.removeItem(`onceflash_room_dur_${roomId}`);
   sessionStorage.removeItem(`onceflash_room_max_${roomId}`);
 
+  localStorage.removeItem(`onceflash_room_host_${roomId}`);
+  localStorage.removeItem(`onceflash_room_admin_${roomId}`);
+  localStorage.removeItem(`onceflash_room_alias_${roomId}`);
+  localStorage.removeItem(`onceflash_room_key_${roomId}`);
+  localStorage.removeItem(`onceflash_room_url_${roomId}`);
+  localStorage.removeItem(`onceflash_room_dur_${roomId}`);
+  localStorage.removeItem(`onceflash_room_max_${roomId}`);
+  localStorage.removeItem(`onceflash_room_cid_${roomId}`);
+
   showRoomDestroyed("You destroyed the Flash Room. All data permanently wiped.");
 
   if (roomId && adminToken) {
@@ -1801,7 +1812,8 @@ if (createRoomBtn) {
         roomUrl = buildRoomUrl(res.room_id, keyB64);
       }
 
-      // Save Host credentials in sessionStorage so refresh preserves Host state seamlessly
+      // Save Host credentials in sessionStorage only for this creator tab.
+      // (Do NOT use localStorage so opening the link in another tab or sharing does NOT auto-enter as admin!)
       sessionStorage.setItem(`onceflash_room_host_${res.room_id}`, "true");
       sessionStorage.setItem(`onceflash_room_admin_${res.room_id}`, res.admin_token);
       sessionStorage.setItem(`onceflash_room_alias_${res.room_id}`, alias);
@@ -1809,6 +1821,8 @@ if (createRoomBtn) {
       sessionStorage.setItem(`onceflash_room_url_${res.room_id}`, roomUrl);
       sessionStorage.setItem(`onceflash_room_dur_${res.room_id}`, String(duration));
       sessionStorage.setItem(`onceflash_room_max_${res.room_id}`, String(maxMembers));
+      sessionStorage.setItem(`onceflash_room_cid_${res.room_id}`, res.client_id || clientToken);
+      sessionStorage.setItem(`onceflash_room_active_${res.room_id}`, "false");
 
       currentRoom = {
         roomId: res.room_id,
@@ -1917,23 +1931,48 @@ const roomLeaveBtn   = document.getElementById("room-leave-btn");
 async function leaveCurrentRoom() {
   if (!currentRoom) return;
   const roomId = currentRoom.roomId;
+  const isHost = currentRoom.isHost;
+  const adminToken = currentRoom.adminToken;
+  const clientToken = currentRoom.clientToken;
+  const alias = currentRoom.myAlias;
+
+  // Confirmation pop-up before leaving
+  const confirmed = await showConfirmModal({
+    title: "Leave Flash Room",
+    tag: "[ LEAVE SESSION ]",
+    message: isHost
+      ? "Are you sure you want to leave this Flash Room? The conversation will continue for remaining participants, but you will permanently surrender Host access and cannot re-enter."
+      : "Are you sure you want to leave this Flash Room session? You will not be able to re-enter.",
+    confirmText: "Leave Room",
+    cancelText: "Stay in Room",
+    danger: true,
+  });
+  if (!confirmed) return;
+
   try {
     const leavePayload = JSON.stringify({
       type: "leave",
-      sender: currentRoom.myAlias,
-      isHost: currentRoom.isHost,
+      sender: alias,
+      isHost,
       guestIndex: currentRoom.guestIndex,
     });
     const cipherLeave = await encrypt(currentRoom.cryptoKey, leavePayload);
     await sendRoomMessage(roomId, {
-      clientId: currentRoom.clientToken,
-      sender: currentRoom.myAlias,
+      clientId: clientToken,
+      sender: alias,
       ciphertext: cipherLeave,
     });
   } catch (e) {
     console.warn("Leave broadcast error:", e);
   }
 
+  try {
+    await leaveRoom(roomId, clientToken, adminToken);
+  } catch (err) {
+    console.warn("Backend leave room error:", err);
+  }
+
+  // Wipe all credentials and mark departed so re-entry is completely blocked
   sessionStorage.removeItem(`onceflash_room_host_${roomId}`);
   sessionStorage.removeItem(`onceflash_room_admin_${roomId}`);
   sessionStorage.removeItem(`onceflash_room_alias_${roomId}`);
@@ -1941,8 +1980,23 @@ async function leaveCurrentRoom() {
   sessionStorage.removeItem(`onceflash_room_url_${roomId}`);
   sessionStorage.removeItem(`onceflash_room_dur_${roomId}`);
   sessionStorage.removeItem(`onceflash_room_max_${roomId}`);
+  sessionStorage.removeItem(`onceflash_room_cid_${roomId}`);
 
-  showRoomDestroyed("You left the Flash Room.");
+  localStorage.removeItem(`onceflash_room_host_${roomId}`);
+  localStorage.removeItem(`onceflash_room_admin_${roomId}`);
+  localStorage.removeItem(`onceflash_room_alias_${roomId}`);
+  localStorage.removeItem(`onceflash_room_key_${roomId}`);
+  localStorage.removeItem(`onceflash_room_url_${roomId}`);
+  localStorage.removeItem(`onceflash_room_dur_${roomId}`);
+  localStorage.removeItem(`onceflash_room_max_${roomId}`);
+  localStorage.removeItem(`onceflash_room_cid_${roomId}`);
+
+  // Mark departed locally so if user opens link again, they are blocked
+  localStorage.setItem(`onceflash_room_departed_${roomId}`, "true");
+  sessionStorage.setItem(`onceflash_room_departed_${roomId}`, "true");
+
+  purgeRoomMemory();
+  showRoomDestroyed("You left the Flash Room. You cannot re-enter this session.");
 }
 
 if (roomDestroyBtn) roomDestroyBtn.addEventListener("click", destroyCurrentRoom);
@@ -1994,16 +2048,35 @@ async function initRoomPage() {
     return;
   }
 
-  // Check if current user is the host who refreshed this room
+  // Clean legacy localStorage keys so they don't cause any tab to auto-enter as admin
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("onceflash_room_")) {
+        localStorage.removeItem(k);
+      }
+    }
+  } catch (e) {}
+
+  // Block departed users from re-entering
+  const isDeparted = sessionStorage.getItem(`onceflash_room_departed_${roomId}`) === "true";
+  if (isDeparted) {
+    showRoomDestroyed("You have departed this Flash Room. Re-entry is not permitted.");
+    return;
+  }
+
+  // Check if this specific tab is the active host tab
   const isSavedHost = sessionStorage.getItem(`onceflash_room_host_${roomId}`) === "true";
-  if (isSavedHost) {
-    const savedAdmin = sessionStorage.getItem(`onceflash_room_admin_${roomId}`);
+  const savedAdmin = sessionStorage.getItem(`onceflash_room_admin_${roomId}`);
+  const isActiveSession = sessionStorage.getItem(`onceflash_room_active_${roomId}`) === "true";
+
+  if (isSavedHost && savedAdmin) {
     const savedAlias = sessionStorage.getItem(`onceflash_room_alias_${roomId}`) || "Host";
     const savedKeyB64 = sessionStorage.getItem(`onceflash_room_key_${roomId}`) || parsed.keyB64;
     const savedUrl = sessionStorage.getItem(`onceflash_room_url_${roomId}`) || window.location.href;
     const savedDur = parseInt(sessionStorage.getItem(`onceflash_room_dur_${roomId}`) || "900", 10);
     const savedMax = parseInt(sessionStorage.getItem(`onceflash_room_max_${roomId}`) || "4", 10);
-    const clientToken = getRoomClientId(roomId);
+    const clientToken = sessionStorage.getItem(`onceflash_room_cid_${roomId}`) || getRoomClientId(roomId);
 
     let cryptoKey = null;
     try {
@@ -2014,7 +2087,7 @@ async function initRoomPage() {
       console.warn("Failed to import saved host key:", kErr);
     }
 
-    if (cryptoKey && savedAdmin) {
+    if (cryptoKey) {
       const info = await fetchRoomInfo(roomId).catch(() => ({}));
       currentRoom = {
         roomId,
@@ -2039,7 +2112,22 @@ async function initRoomPage() {
         roomUrl: savedUrl,
       };
       memberColorMap.set(savedAlias, { isHost: true, guestIndex: 0 });
-      await startRoomSession();
+
+      // If the host had already entered the chat session in this tab before refreshing:
+      if (isActiveSession) {
+        await joinRoom(roomId, clientToken, savedAdmin).catch((e) => console.warn("Host re-join error:", e));
+        await startRoomSession();
+        return;
+      }
+
+      // If the host was still on the Share Room screen before entering:
+      const roomShareUrlInput = document.getElementById("room-share-url");
+      const roomShareDuration = document.getElementById("room-share-duration");
+      const roomShareCapacity = document.getElementById("room-share-capacity");
+      if (roomShareUrlInput) roomShareUrlInput.value = savedUrl;
+      if (roomShareDuration) roomShareDuration.textContent = `${Math.floor(savedDur / 60)} minutes`;
+      if (roomShareCapacity) roomShareCapacity.textContent = `${savedMax} participants`;
+      showPanel("room-share");
       return;
     }
   }
@@ -2137,21 +2225,23 @@ async function initRoomPage() {
           newBtn.disabled = true;
           newBtn.textContent = "[ JOINING... ]";
 
-          const alias = guestAliasInput?.value.trim() || `Guest-${Math.random().toString(36).slice(2, 6)}`;
+          const alias = guestAliasInput?.value.trim() || (isSavedHost ? (sessionStorage.getItem(`onceflash_room_alias_${roomId}`) || localStorage.getItem(`onceflash_room_alias_${roomId}`) || "Host") : `Guest-${Math.random().toString(36).slice(2, 6)}`);
           const clientToken = getRoomClientId(roomId);
+          const savedAdmin = sessionStorage.getItem(`onceflash_room_admin_${roomId}`) || localStorage.getItem(`onceflash_room_admin_${roomId}`);
 
           try {
-            const joinRes = await joinRoom(roomId, clientToken);
-            const guestIndex = (joinRes.guest_index !== undefined) ? joinRes.guest_index : 1;
+            const joinRes = await joinRoom(roomId, clientToken, savedAdmin);
+            const isHost = (joinRes.is_host !== undefined) ? !!joinRes.is_host : !!(savedAdmin && isSavedHost);
+            const guestIndex = isHost ? 0 : ((joinRes.guest_index !== undefined) ? joinRes.guest_index : 1);
 
             currentRoom = {
               roomId,
               keyB64,
               cryptoKey,
-              adminToken: null,
+              adminToken: isHost ? savedAdmin : null,
               clientToken,
               myAlias: alias,
-              isHost: false,
+              isHost,
               guestIndex,
               durationSeconds: joinRes.duration_seconds || info.duration_seconds || 600,
               started: !!joinRes.started,
@@ -2167,11 +2257,16 @@ async function initRoomPage() {
               roomUrl: window.location.href,
             };
 
-            memberColorMap.set(alias, { isHost: false, guestIndex });
+            memberColorMap.set(alias, { isHost, guestIndex });
 
             startRoomSession();
           } catch (joinErr) {
-            if (joinErr.status === 403 || (joinErr.message && joinErr.message.includes("capacity"))) {
+            if (joinErr.message && joinErr.message.includes("departed")) {
+              newBtn.disabled = true;
+              newBtn.textContent = "[ DEPARTED ]";
+              toast("You have departed this session and cannot re-enter.", "error");
+              showRoomDestroyed("You have departed this Flash Room. Re-entry is not permitted.");
+            } else if (joinErr.status === 403 || (joinErr.message && joinErr.message.includes("capacity"))) {
               newBtn.disabled = true;
               newBtn.textContent = "[ ROOM FULL ]";
               toast("Room capacity reached. Session is locked to new participants.", "error");

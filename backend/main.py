@@ -107,6 +107,7 @@ class InMemoryStore:
         self._room_joined: dict[str, set[str]] = {}
         self._room_joined_order: dict[str, list[str]] = {}
         self._room_seq: dict[str, int] = {}
+        self._room_departed: dict[str, set[str]] = {}
         self._lock = asyncio.Lock()
 
     async def ping(self):
@@ -140,6 +141,7 @@ class InMemoryStore:
             self._room_joined.pop(k, None)
             self._room_joined_order.pop(k, None)
             self._room_seq.pop(k, None)
+            self._room_departed.pop(k, None)
 
     async def set_paste(self, key: str, mapping: dict, ttl_seconds: int):
         async with self._lock:
@@ -240,6 +242,7 @@ class InMemoryStore:
             self._room_joined[room_id] = {host_client_id}
             self._room_joined_order[room_id] = [host_client_id]
             self._room_seq[room_id] = 0
+            self._room_departed[room_id] = set()
             return True
 
     async def start_room(self, room_id: str, admin_token: str) -> dict | None:
@@ -289,27 +292,48 @@ class InMemoryStore:
                 "started": started,
             }
 
-    async def join_room(self, room_id: str, client_id: str) -> tuple[bool, str, dict]:
+    async def join_room(self, room_id: str, client_id: str, admin_token: str | None = None) -> tuple[bool, str, dict]:
         async with self._lock:
             self._cleanup_expired()
             if room_id not in self._rooms:
                 return False, "Room not found or session ended", {}
             room = self._rooms[room_id]
             now = time.time()
+            expected_admin = room.get("admin_token", "")
+            is_host = bool(admin_token and expected_admin and secrets.compare_digest(expected_admin, admin_token))
+
+            departed = self._room_departed.setdefault(room_id, set())
+            if client_id in departed:
+                return False, "You have departed this session and cannot re-enter.", {}
+            if room.get("host_departed") and (is_host or admin_token):
+                return False, "The host has departed this session and cannot re-enter.", {}
+
             host_client_id = room.get("host_client_id", "")
+            if is_host:
+                host_client_id = client_id
+                room["host_client_id"] = client_id
+
             members = self._room_members.setdefault(room_id, {})
             joined = self._room_joined.setdefault(room_id, {host_client_id})
             joined_order = self._room_joined_order.setdefault(room_id, [host_client_id])
 
-            # Check if this client has already claimed a slot
-            if client_id not in joined and client_id != host_client_id:
-                if len(joined) >= room["max_members"]:
-                    return False, "Room capacity reached. Session is locked to new participants.", {}
-                joined.add(client_id)
-                if client_id not in joined_order:
+            if is_host:
+                if len(joined_order) > 0:
+                    joined_order[0] = client_id
+                else:
                     joined_order.append(client_id)
+                joined.add(client_id)
+                guest_index = 0
+            else:
+                # Check if this client has already claimed a slot
+                if client_id not in joined and client_id != host_client_id:
+                    if len(joined) >= room["max_members"]:
+                        return False, "Room capacity reached. Session is locked to new participants.", {}
+                    joined.add(client_id)
+                    if client_id not in joined_order:
+                        joined_order.append(client_id)
 
-            guest_index = joined_order.index(client_id) if client_id in joined_order else 0
+                guest_index = joined_order.index(client_id) if client_id in joined_order else 0
 
             # Clean stale guest members (protect host slot)
             stale = [m for m, seen in members.items() if m != host_client_id and m != client_id and (now - seen > 45)]
@@ -328,6 +352,7 @@ class InMemoryStore:
                 "total_joined": len(joined),
                 "is_full": len(joined) >= room["max_members"],
                 "guest_index": guest_index,
+                "is_host": is_host or (client_id == host_client_id),
                 "started": started,
             }
 
@@ -413,6 +438,28 @@ class InMemoryStore:
             self._room_joined.pop(room_id, None)
             self._room_joined_order.pop(room_id, None)
             self._room_seq.pop(room_id, None)
+            self._room_departed.pop(room_id, None)
+            return True
+
+    async def leave_room(self, room_id: str, client_id: str, admin_token: str | None = None) -> bool:
+        async with self._lock:
+            self._cleanup_expired()
+            if room_id not in self._rooms:
+                return False
+            room = self._rooms[room_id]
+            expected_admin = room.get("admin_token", "")
+            is_host = bool(admin_token and expected_admin and secrets.compare_digest(expected_admin, admin_token))
+
+            departed = self._room_departed.setdefault(room_id, set())
+            departed.add(client_id)
+
+            if is_host or client_id == room.get("host_client_id"):
+                room["host_departed"] = True
+                room["admin_token"] = ""
+                room["host_client_id"] = ""
+
+            members = self._room_members.get(room_id, {})
+            members.pop(client_id, None)
             return True
 
 
@@ -661,7 +708,7 @@ class StorageManager:
         else:
             return await self.memory.get_room_meta(room_id)
 
-    async def join_room(self, room_id: str, client_id: str) -> tuple[bool, str, dict]:
+    async def join_room(self, room_id: str, client_id: str, admin_token: str | None = None) -> tuple[bool, str, dict]:
         if self.is_redis and self.redis:
             meta_key = f"room:{room_id}:meta"
             meta = await self.redis.hgetall(meta_key)
@@ -672,7 +719,19 @@ class StorageManager:
             expires_at = int(meta_dict.get("expires_at", 0))
             started = meta_dict.get("started", "0") == "1"
             dur = int(meta_dict.get("duration_seconds", 900))
+            expected_admin = meta_dict.get("admin_token", "")
+            is_host = bool(admin_token and expected_admin and secrets.compare_digest(expected_admin, admin_token))
+
+            if await self.redis.sismember(f"room:{room_id}:departed", client_id):
+                return False, "You have departed this session and cannot re-enter.", {}
+            if meta_dict.get("host_departed") == "1" and (is_host or admin_token):
+                return False, "The host has departed this session and cannot re-enter.", {}
+
             host_client_id = meta_dict.get("host_client_id", "")
+            if is_host:
+                host_client_id = client_id
+                await self.redis.hset(meta_key, "host_client_id", client_id)
+
             now = time.time()
             ttl_left = max(0, int(expires_at - now)) if started else dur
 
@@ -684,6 +743,8 @@ class StorageManager:
                     return False, "Room capacity reached. Session is locked to new participants.", {}
                 await self.redis.sadd(joined_key, client_id)
                 await self.redis.expire(joined_key, max(1, ttl_left if started else 900))
+            elif is_host:
+                await self.redis.sadd(joined_key, client_id)
 
             members_key = f"room:{room_id}:members"
             members_raw = await self.redis.hgetall(members_key)
@@ -700,14 +761,23 @@ class StorageManager:
             await self.redis.expire(members_key, max(1, ttl_left if started else 900))
 
             order_key = f"room:{room_id}:order"
-            order_list = await self.redis.lrange(order_key, 0, -1)
-            order_strs = [(x.decode() if isinstance(x, bytes) else str(x)) for x in order_list]
-            if client_id not in order_strs:
-                await self.redis.rpush(order_key, client_id)
-                await self.redis.expire(order_key, max(1, ttl_left if started else 900))
-                guest_index = len(order_strs)
+            if is_host:
+                guest_index = 0
+                order_list = await self.redis.lrange(order_key, 0, -1)
+                order_strs = [(x.decode() if isinstance(x, bytes) else str(x)) for x in order_list]
+                if not order_strs:
+                    await self.redis.rpush(order_key, client_id)
+                else:
+                    await self.redis.lset(order_key, 0, client_id)
             else:
-                guest_index = order_strs.index(client_id)
+                order_list = await self.redis.lrange(order_key, 0, -1)
+                order_strs = [(x.decode() if isinstance(x, bytes) else str(x)) for x in order_list]
+                if client_id not in order_strs:
+                    await self.redis.rpush(order_key, client_id)
+                    await self.redis.expire(order_key, max(1, ttl_left if started else 900))
+                    guest_index = len(order_strs)
+                else:
+                    guest_index = order_strs.index(client_id)
 
             total_joined = await self.redis.scard(joined_key)
             return True, "", {
@@ -719,10 +789,11 @@ class StorageManager:
                 "total_joined": total_joined,
                 "is_full": total_joined >= max_members,
                 "guest_index": guest_index,
+                "is_host": is_host or (client_id == host_client_id),
                 "started": started,
             }
         else:
-            return await self.memory.join_room(room_id, client_id)
+            return await self.memory.join_room(room_id, client_id, admin_token)
 
     async def add_room_message(self, room_id: str, sender: str, ciphertext: str, iv: str) -> dict | None:
         if self.is_redis and self.redis:
@@ -836,6 +907,7 @@ class StorageManager:
             pipe.delete(meta_key)
             pipe.delete(f"room:{room_id}:msgs")
             pipe.delete(f"room:{room_id}:seq")
+            pipe.delete(f"room:{room_id}:departed")
             pipe.delete(f"room:{room_id}:members")
             pipe.delete(f"room:{room_id}:joined")
             pipe.delete(f"room:{room_id}:order")
@@ -844,6 +916,28 @@ class StorageManager:
             return True
         else:
             return await self.memory.delete_room(room_id, admin_token)
+
+    async def leave_room(self, room_id: str, client_id: str, admin_token: str | None = None) -> bool:
+        if self.is_redis and self.redis:
+            meta_key = f"room:{room_id}:meta"
+            meta = await self.redis.hgetall(meta_key)
+            if not meta:
+                return False
+            meta_dict = {(k.decode() if isinstance(k, bytes) else str(k)): (v.decode() if isinstance(v, bytes) else str(v)) for k, v in meta.items()}
+            expected_admin = meta_dict.get("admin_token", "")
+            is_host = bool(admin_token and expected_admin and secrets.compare_digest(expected_admin, admin_token))
+
+            pipe = self.redis.pipeline()
+            pipe.sadd(f"room:{room_id}:departed", client_id)
+            pipe.hdel(f"room:{room_id}:members", client_id)
+            if is_host or client_id == meta_dict.get("host_client_id"):
+                pipe.hset(meta_key, "host_departed", "1")
+                pipe.hdel(meta_key, "admin_token")
+                pipe.hdel(meta_key, "host_client_id")
+            await pipe.execute()
+            return True
+        else:
+            return await self.memory.leave_room(room_id, client_id, admin_token)
 
     async def close(self):
         if self.is_redis and self.redis:
@@ -1089,6 +1183,10 @@ class CreateRoomResponse(BaseModel):
 
 
 class JoinRoomRequest(BaseModel):
+    client_id: str = Field(..., min_length=4, max_length=64)
+
+
+class LeaveRoomRequest(BaseModel):
     client_id: str = Field(..., min_length=4, max_length=64)
 
 
@@ -1441,10 +1539,11 @@ async def join_room(
     request: Request,
     room_id: str,
     payload: JoinRoomRequest = Body(...),
+    x_admin_token: str | None = Header(None, alias="X-Admin-Token"),
 ) -> JSONResponse:
     if not room_id or len(room_id) > 32:
         raise HTTPException(status_code=400, detail="Invalid room ID")
-    success, err_msg, meta = await storage.join_room(room_id, payload.client_id)
+    success, err_msg, meta = await storage.join_room(room_id, payload.client_id, x_admin_token)
     if not success:
         if "not found" in err_msg.lower():
             raise HTTPException(status_code=404, detail=err_msg)
@@ -1454,6 +1553,31 @@ async def join_room(
 
     return JSONResponse(
         content={"status": "joined", **meta},
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, private",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.post(
+    "/api/room/{room_id}/leave",
+    summary="Leave an ephemeral room session",
+)
+@limiter.limit("60/minute")
+async def leave_room(
+    request: Request,
+    room_id: str,
+    payload: LeaveRoomRequest = Body(...),
+    x_admin_token: str | None = Header(None, alias="X-Admin-Token"),
+) -> JSONResponse:
+    if not room_id or len(room_id) > 32:
+        raise HTTPException(status_code=400, detail="Invalid room ID")
+    left = await storage.leave_room(room_id, payload.client_id, x_admin_token)
+    if not left:
+        raise HTTPException(status_code=404, detail="Room not found or expired")
+    return JSONResponse(
+        content={"status": "left", "message": "Successfully departed session"},
         headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, private",
             "Pragma": "no-cache",

@@ -225,10 +225,14 @@ export async function fetchRoomInfo(roomId) {
  * @param {string} clientId
  * @returns {Promise<{ status: string, expires_at: number, ttl_left: number, max_members: number, active_members: number }>}
  */
-export async function joinRoom(roomId, clientId) {
+export async function joinRoom(roomId, clientId, adminToken = null) {
+  const headers = { "Content-Type": "application/json" };
+  if (adminToken) {
+    headers["X-Admin-Token"] = adminToken;
+  }
   const response = await fetch(`${API_BASE}/room/${encodeURIComponent(roomId)}/join`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ client_id: clientId }),
     credentials: "omit",
   });
@@ -241,6 +245,33 @@ export async function joinRoom(roomId, clientId) {
   }
   if (!response.ok) {
     const err = await response.json().catch(() => ({ detail: "Failed to join room" }));
+    throw new Error(err.detail || `HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Leave an ephemeral room session.
+ * @param {string} roomId
+ * @param {string} clientId
+ * @param {string|null} adminToken
+ * @returns {Promise<{ status: string }>}
+ */
+export async function leaveRoom(roomId, clientId, adminToken = null) {
+  const headers = { "Content-Type": "application/json" };
+  if (adminToken) {
+    headers["X-Admin-Token"] = adminToken;
+  }
+  const response = await fetch(`${API_BASE}/room/${encodeURIComponent(roomId)}/leave`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ client_id: clientId }),
+    credentials: "omit",
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: "Failed to leave room" }));
     throw new Error(err.detail || `HTTP ${response.status}`);
   }
 
