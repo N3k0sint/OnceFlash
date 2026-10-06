@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Privacy Policy &amp; Terms — OnceFlash</title>
   <meta name="description"
-    content="OnceFlash Privacy Policy: Zero-knowledge architecture, zero tracking, ephemeral in-memory storage, and complete burn-on-read guarantees." />
+    content="OnceFlash Privacy Policy: Zero-knowledge architecture, zero tracking, ephemeral in-memory storage, Flash Rooms live chat privacy, and complete burn-on-read guarantees." />
   <meta name="robots" content="noindex, nofollow" />
   <meta name="referrer" content="no-referrer" />
 
@@ -73,78 +73,133 @@
         </div>
 
         <!-- Section 1 -->
-        <div class="about-section-block">
-          <h2 class="about-heading">1. Zero-Knowledge Cryptography</h2>
-          <p class="about-text">
-            All encryption and decryption happens exclusively inside your web browser via
-            <code>window.crypto.subtle</code> (Web Cryptography API) using <strong>AES-256-GCM</strong>.
-          </p>
-          <p class="about-text">
-            The decryption key is embedded in the URL hash fragment (e.g. <code>#&lt;id&gt;:&lt;key&gt;</code>). In
-            accordance with <em>RFC 3986 §3.5</em>, hash fragments are <strong>never transmitted across the
-              network</strong> to our servers. As a result, our servers never see, possess, or store your encryption
-            keys or plaintext notes.
-          </p>
-        </div>
-
-        <!-- Section 2 -->
-        <div class="about-section-block">
-          <h2 class="about-heading">2. Ephemeral Storage &amp; Irreversible Purge</h2>
-          <p class="about-text">
-            Ciphertext blobs are stored temporarily in volatile memory (RAM or Redis) with a strict expiration timer
-            (TTL) set by the sender.
-          </p>
-          <ul class="about-list">
-            <li><strong>Burn-on-Read:</strong> Notes configured for 1 view are deleted atomically immediately upon
-              retrieval using atomic server scripts to prevent double-read race conditions.</li>
-            <li><strong>Automatic Expiration:</strong> When a note reaches its view limit or expiry duration, it is
-              permanently wiped and unrecoverable.</li>
-            <li><strong>No Backups:</strong> Ephemeral notes are never written to permanent disk storage, archives, or
-              backup tapes.</li>
-          </ul>
-        </div>
-
-        <!-- Section 3 -->
-        <div class="about-section-block">
-          <h2 class="about-heading">3. Zero Tracking, Cookies, or Analytics</h2>
-          <p class="about-text">
-            OnceFlash does not monitor your behavior or track you across the internet:
-          </p>
-          <ul class="about-list">
-            <li><strong>No User Accounts:</strong> You never register, log in, or provide personal identification.</li>
-            <li><strong>No Cookies:</strong> We do not use persistent tracking cookies, marketing pixels, or local
-              tracking beacons.</li>
-            <li><strong>No Third-Party Analytics:</strong> No Google Analytics, no Facebook pixels, and no surveillance
-              scripts.</li>
-            <li><strong>No Referrer Leakage:</strong> Strict <code>Referrer-Policy: no-referrer</code> headers prevent
-              your secret link fragment from leaking to outbound links.</li>
-          </ul>
-        </div>
-
-        <!-- Section 4 -->
-        <div class="about-section-block">
-          <h2 class="about-heading">4. Terms of Use &amp; Disclaimer</h2>
-          <p class="about-text">
-            OnceFlash is free and open-source software licensed under the <strong>GNU General Public License v3.0 (GPLv3)</strong> on an "as is" and "as available" basis, without warranties of any kind.
-          </p>
-          <div class="about-box-card">
-            <p class="about-text" style="margin-bottom: 0.5rem;">
-              <strong>User Responsibility:</strong> You are solely responsible for securely transmitting secret links to
-              your intended recipients. Because OnceFlash is zero-knowledge, <em>lost links or keys cannot be
-                recovered</em>, and burned messages cannot be restored by anyone under any circumstances.
+        <details class="policy-dropdown" name="policy-faq">
+          <summary class="policy-summary">
+            <h2 class="policy-summary-title">1. Zero-Knowledge Cryptography</h2>
+            <span class="policy-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </summary>
+          <div class="policy-dropdown-body">
+            <p class="about-text">
+              All encryption and decryption happens exclusively inside your web browser via
+              <code>window.crypto.subtle</code> (Web Cryptography API) using <strong>AES-256-GCM</strong> with fresh 96-bit initialization vectors (IVs).
+            </p>
+            <p class="about-text">
+              The decryption key is embedded in the URL hash fragment (e.g. <code>#&lt;id&gt;:&lt;key&gt;</code> or <code>#room=&lt;id&gt;&amp;key=&lt;key&gt;</code>). In accordance with <em>RFC 3986 §3.5</em>, hash fragments are <strong>never transmitted across the network</strong> to our servers. As a result, our servers never see, possess, or store your encryption keys, plaintext notes, or chat contents.
             </p>
             <p class="about-text" style="margin-bottom: 0;">
-              <strong>Prohibited Activities:</strong> You may not use OnceFlash for distributing malicious software,
-              conducting automated DoS attacks, or engaging in illegal activities.
+              When optional <strong>Password Protection</strong> is enabled (for notes or Flash Rooms), key un-wrapping is calculated client-side using PBKDF2 (100,000 iterations). Your passphrase is never transmitted across the network or stored on our infrastructure.
             </p>
           </div>
-        </div>
+        </details>
+
+        <!-- Section 2 -->
+        <details class="policy-dropdown" name="policy-faq">
+          <summary class="policy-summary">
+            <h2 class="policy-summary-title">2. Ephemeral Storage &amp; Irreversible Purge</h2>
+            <span class="policy-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </summary>
+          <div class="policy-dropdown-body">
+            <p class="about-text">
+              All ciphertext payloads are stored strictly in volatile memory (RAM or ephemeral Redis cache) with an enforced time-to-live (TTL) expiration timer set by the creator.
+            </p>
+            <ul class="about-list">
+              <li><strong>Burn-on-Read:</strong> Notes configured for 1 view are deleted atomically immediately upon retrieval using atomic server-side evaluation to prevent double-read race conditions.</li>
+              <li><strong>Automatic Expiration:</strong> When a secret reaches its view limit or countdown duration, it is permanently wiped and unrecoverable.</li>
+              <li><strong>Dual Destruction:</strong> Both creators and recipients can trigger immediate destruction at any time.</li>
+              <li><strong>No Disk Persistence or Backups:</strong> Ephemeral notes and chat buffers are never written to permanent disk storage, database tables, or backup archives.</li>
+            </ul>
+          </div>
+        </details>
+
+        <!-- Section 3: Flash Rooms (New Feature Policy) -->
+        <details class="policy-dropdown" name="policy-faq">
+          <summary class="policy-summary">
+            <h2 class="policy-summary-title">3. Flash Rooms (Ephemeral Live Chat Sessions)</h2>
+            <span class="policy-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </summary>
+          <div class="policy-dropdown-body">
+            <p class="about-text">
+              Flash Rooms provide temporary, end-to-end encrypted group chat sessions for up to 4 participants with a strict lifetime countdown (5 to 60 minutes).
+            </p>
+            <ul class="about-list">
+              <li><strong>End-to-End Encrypted Relay:</strong> Every chat message is individually encrypted with AES-256-GCM in the sender's browser before transmission. The server functions purely as a blind relay and holds only opaque ciphertext blobs in volatile RAM.</li>
+              <li><strong>Anonymous Aliases:</strong> No real names, phone numbers, or user profiles are collected. Participants choose or are assigned a temporary Alias (nickname) that exists solely during the active session.</li>
+              <li><strong>Tab-Scoped Session Isolation (Zero Cookie Tracking):</strong> Host administrative credentials and participant tokens are stored exclusively in <code>sessionStorage</code>, which is isolated strictly to your active browser tab. OnceFlash does not use authentication cookies or cross-tab local storage for room credentials, preventing cookie hijacking, CSRF attacks, and unintended administrative access across open tabs.</li>
+              <li><strong>Voluntary Departure &amp; Anti-Reentry Guarantee:</strong> When a user or host clicks "Leave Room", all local keys and session tokens are purged from browser memory immediately. To prevent session hijacking or unauthorized re-attachment, departed users cannot re-enter the session. If a host departs, the conversation continues for remaining participants until the timer expires, but host administrative controls cannot be reclaimed.</li>
+              <li><strong>Immediate Room Destruction:</strong> Flash Rooms self-destruct upon expiration of the session timer or when explicitly triggered by the host. All messages, participant sequences, and room data are atomically and permanently purged from server memory.</li>
+            </ul>
+          </div>
+        </details>
+
+        <!-- Section 4 -->
+        <details class="policy-dropdown" name="policy-faq">
+          <summary class="policy-summary">
+            <h2 class="policy-summary-title">4. Zero Tracking, Cookies, or Surveillance</h2>
+            <span class="policy-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </summary>
+          <div class="policy-dropdown-body">
+            <p class="about-text">
+              OnceFlash is built on a radical privacy foundation and does not monitor, track, or profile you:
+            </p>
+            <ul class="about-list">
+              <li><strong>No User Accounts:</strong> You never register, log in, or provide personal identification.</li>
+              <li><strong>No Tracking Cookies:</strong> We do not set persistent tracking cookies, marketing pixels, or analytics beacons.</li>
+              <li><strong>Offline QR Generation:</strong> QR codes are generated 100% client-side in SVG format without making remote API requests to third-party barcode services.</li>
+              <li><strong>No Third-Party Analytics:</strong> No Google Analytics, tracking pixels, or surveillance scripts are embedded.</li>
+              <li><strong>No Referrer Leakage:</strong> Strict <code>Referrer-Policy: no-referrer</code> and security headers prevent secret link fragments from leaking to external destinations.</li>
+            </ul>
+          </div>
+        </details>
+
+        <!-- Section 5 -->
+        <details class="policy-dropdown" name="policy-faq">
+          <summary class="policy-summary">
+            <h2 class="policy-summary-title">5. Terms of Use &amp; Disclaimer</h2>
+            <span class="policy-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </span>
+          </summary>
+          <div class="policy-dropdown-body">
+            <p class="about-text">
+              OnceFlash is free and open-source software licensed under the <strong>GNU General Public License v3.0 (GPLv3)</strong> on an "as is" and "as available" basis, without warranties of any kind.
+            </p>
+            <div class="about-box-card">
+              <p class="about-text" style="margin-bottom: 0.5rem;">
+                <strong>User Responsibility:</strong> You are solely responsible for securely transmitting secret links to your intended recipients. Because OnceFlash is zero-knowledge, <em>lost links, forgotten passphrases, or expired keys cannot be recovered</em>, and burned messages cannot be restored by anyone under any circumstances.
+              </p>
+              <p class="about-text" style="margin-bottom: 0.5rem;">
+                <strong>Prohibited Activities:</strong> You may not use OnceFlash for distributing malicious software, conducting automated DoS attacks, or engaging in illegal activities.
+              </p>
+              <p class="about-text" style="margin-bottom: 0; color: var(--text-muted); font-size: 0.85rem; font-style: italic;">
+                * Don't use these tools for chat scandals :) OnceFlash is engineered for cybersecurity, confidential credentials, and genuine personal privacy.
+              </p>
+            </div>
+          </div>
+        </details>
 
         <!-- Bottom Actions -->
         <div
           style="margin-top: 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
           <span style="font-size: 0.85rem; color: var(--text-muted);">
-            Open Source &bull; Zero-Knowledge &bull; Client-Side Encrypted
+            Open Source &bull; Zero-Knowledge &bull; Client-Side Encrypted &bull; Ephemeral Flash Rooms
           </span>
           <a href="/" class="btn-primary" style="text-decoration: none;">← Back to Home</a>
         </div>
@@ -168,6 +223,21 @@
 
   </div>
 
+  <script>
+    // Auto-collapse: when one policy section is opened, smoothly collapse any others
+    const dropDowns = document.querySelectorAll("details.policy-dropdown");
+    dropDowns.forEach((item) => {
+      item.addEventListener("toggle", () => {
+        if (item.open) {
+          dropDowns.forEach((other) => {
+            if (other !== item && other.open) {
+              other.open = false;
+            }
+          });
+        }
+      });
+    });
+  </script>
 </body>
 
 </html>

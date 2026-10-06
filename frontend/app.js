@@ -1605,7 +1605,6 @@ async function startRoomSession() {
     }
   }
 
-  const idBadge = document.getElementById("room-id-badge");
   const countBadge = document.getElementById("room-count-badge");
   const roleBadge = document.getElementById("room-role-badge");
   const destroyBtn = document.getElementById("room-destroy-btn");
@@ -1619,7 +1618,7 @@ async function startRoomSession() {
 
   const myColorClass = getMemberColorClass(currentRoom.myAlias, currentRoom.isHost, currentRoom.guestIndex);
   const cleanAlias = (currentRoom.myAlias || (currentRoom.isHost ? "host" : "guest")).replace(/[^a-zA-Z0-9_-]/g, "");
-  if (titleText) titleText.textContent = `${cleanAlias}@flash: ~/room/${currentRoom.roomId.slice(0, 6)}`;
+  if (titleText) titleText.textContent = `${cleanAlias}@flash: ~/room`;
   if (inputPrompt) {
     inputPrompt.textContent = `┌──(${cleanAlias}㉿${currentRoom.isHost ? "host" : "peer"})-[~/room]`;
     inputPrompt.className = `kali-prompt-line ${myColorClass}`;
@@ -1628,7 +1627,6 @@ async function startRoomSession() {
     promptArrow.className = `kali-prompt-arrow ${myColorClass}`;
   }
 
-  if (idBadge) idBadge.textContent = `[ROOM: ${currentRoom.roomId.slice(0, 6)}]`;
   if (countBadge) countBadge.textContent = `[MEMBERS: 1/${currentRoom.maxMembers}]`;
   if (roleBadge) roleBadge.textContent = currentRoom.isHost ? "[HOST]" : "[GUEST]";
 

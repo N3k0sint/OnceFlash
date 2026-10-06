@@ -1257,6 +1257,105 @@ html, body {
   margin-top: 0.75rem;
 }
 
+/* ─── Policy Accordion Dropdowns ─── */
+.policy-dropdown {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  margin-bottom: 1rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  overflow: hidden;
+}
+
+.policy-dropdown:hover {
+  border-color: var(--border-default);
+}
+
+.policy-dropdown[open] {
+  border-color: rgba(42, 252, 207, 0.4);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.policy-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  transition: background-color 0.15s ease;
+}
+
+.policy-summary::-webkit-details-marker {
+  display: none;
+}
+
+.policy-summary:hover {
+  background-color: var(--bg-hover);
+}
+
+.policy-summary:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+.policy-summary-title {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: lowercase;
+}
+
+.policy-summary-title::before {
+  content: "►";
+  font-size: 0.8rem;
+  color: var(--brand-cyan);
+}
+
+.policy-dropdown[open] .policy-summary-title {
+  color: var(--brand-cyan);
+}
+
+.policy-chevron {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: transform 0.2s ease, color 0.2s ease;
+  flex-shrink: 0;
+}
+
+.policy-dropdown[open] .policy-chevron {
+  transform: rotate(180deg);
+  color: var(--brand-cyan);
+}
+
+.policy-dropdown-body {
+  padding: 1rem 1.25rem 1.25rem 1.25rem;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  animation: policyFadeIn 0.2s ease-out;
+}
+
+@keyframes policyFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* ─── Footer ─── */
 .app-footer {
   text-align: center;
