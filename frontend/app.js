@@ -1309,14 +1309,14 @@ function getMemberColorClass(sender, isHost, guestIndex) {
   if (isHost || guestIndex === 0) return "color-red";
   if (guestIndex === 1) return "color-blue";
   if (guestIndex === 2) return "color-yellow";
-  if (guestIndex === 3) return "color-green";
+  if (guestIndex === 3) return "color-purple";
 
   if (sender && memberColorMap.has(sender)) {
     const info = memberColorMap.get(sender);
     if (info.isHost || info.guestIndex === 0) return "color-red";
     if (info.guestIndex === 1) return "color-blue";
     if (info.guestIndex === 2) return "color-yellow";
-    if (info.guestIndex === 3) return "color-green";
+    if (info.guestIndex === 3) return "color-purple";
   }
 
   if (sender) {
@@ -1328,7 +1328,7 @@ function getMemberColorClass(sender, isHost, guestIndex) {
     const fallbackIdx = idx + 1;
     if (fallbackIdx === 1) return "color-blue";
     if (fallbackIdx === 2) return "color-yellow";
-    if (fallbackIdx === 3) return "color-green";
+    if (fallbackIdx === 3) return "color-purple";
   }
 
   return "color-blue";

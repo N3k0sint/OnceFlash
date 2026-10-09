@@ -1828,7 +1828,7 @@ html, body {
   font-weight: 600;
 }
 
-/* 4-Member Terminal Color Palette (Host Red, 1st Guest Blue, 2nd Guest Yellow, Last Guest Green) */
+/* 4-Member Terminal Color Palette (Host Red, 1st Guest Blue, 2nd Guest Yellow, Last Guest Purple) */
 .color-red,
 .kali-user-tag.color-red,
 .kali-prompt-role.color-red,
@@ -1850,17 +1850,21 @@ html, body {
   color: #e3b341 !important;
 }
 
+.color-purple,
 .color-green,
+.kali-user-tag.color-purple,
 .kali-user-tag.color-green,
+.kali-prompt-role.color-purple,
 .kali-prompt-role.color-green,
+.kali-arrow.color-purple,
 .kali-arrow.color-green {
-  color: #00ffc8 !important;
+  color: #bc8cff !important;
 }
 
 .kali-prompt-line.color-red, .kali-prompt-arrow.color-red { color: #ff7b72 !important; }
 .kali-prompt-line.color-blue, .kali-prompt-arrow.color-blue { color: #58a6ff !important; }
 .kali-prompt-line.color-yellow, .kali-prompt-arrow.color-yellow { color: #e3b341 !important; }
-.kali-prompt-line.color-green, .kali-prompt-arrow.color-green { color: #00ffc8 !important; }
+.kali-prompt-line.color-purple, .kali-prompt-line.color-green, .kali-prompt-arrow.color-purple, .kali-prompt-arrow.color-green { color: #bc8cff !important; }
 
 .kali-prompt-icon {
   font-weight: bold;
@@ -1914,11 +1918,11 @@ html, body {
   font-weight: bold;
 }
 
-/* Join notification words: Purple */
+/* Join notification words: Green */
 .kali-sys-line,
 .kali-sys-line.kali-sys-join,
 .kali-sys-line.kali-sys-join .kali-sys-text {
-  color: #bc8cff;
+  color: #3fb950;
 }
 
 /* User Left / Leave Notice: Red words */
