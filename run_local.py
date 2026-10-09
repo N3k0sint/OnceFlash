@@ -9,8 +9,13 @@ import sys
 import subprocess
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
     print("=" * 60)
-    print("⚡ Starting OnceFlash (Local Standalone Mode)")
+    print("Starting OnceFlash (Local Standalone Mode)")
     print("=" * 60)
 
     # Check dependencies

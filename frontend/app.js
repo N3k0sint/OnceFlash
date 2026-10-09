@@ -1529,9 +1529,15 @@ async function executeRoomPoll() {
           if (parsed.type === "join") {
             const roleLabel = parsed.isHost ? "HOST" : "GUEST";
             appendSystemMessage(`user joined session: ${parsed.sender} [${roleLabel}]`);
+            if (currentRoom && parsed.sender !== currentRoom.myAlias) {
+              toast(`${parsed.sender} [${roleLabel}] joined the chat`, "info");
+            }
           } else if (parsed.type === "leave") {
             const roleLabel = parsed.isHost ? "HOST" : "GUEST";
             appendSystemMessage(`user left session: ${parsed.sender} [${roleLabel}]`);
+            if (currentRoom && parsed.sender !== currentRoom.myAlias) {
+              toast(`${parsed.sender} [${roleLabel}] left the chat`, "warning");
+            }
           } else {
             appendChatMessage(parsed.sender || msg.sender || "Peer", parsed.text || "", msg.timestamp, parsed.isHost, parsed.guestIndex);
           }
@@ -1568,6 +1574,7 @@ function startRoomPolling() {
 
 async function startRoomSession() {
   if (!currentRoom || currentRoom.isDestroyed) return;
+  stopSharePanelWatcher();
 
   currentRoom.inSession = true;
   sessionStorage.setItem(`onceflash_room_active_${currentRoom.roomId}`, "true");
@@ -1702,6 +1709,7 @@ async function sendCurrentRoomMessage() {
 
 async function destroyCurrentRoom() {
   if (!currentRoom) return;
+  stopSharePanelWatcher();
 
   const confirmed = await showConfirmModal({
     title: "Destroy Flash Room",
@@ -1774,6 +1782,35 @@ function getRoomClientId(roomId) {
     sessionStorage.setItem(key, cid);
   }
   return cid;
+}
+
+let shareWatcherTimer = null;
+function startSharePanelWatcher(roomId, maxMembers) {
+  stopSharePanelWatcher();
+  let notified = false;
+  shareWatcherTimer = setInterval(async () => {
+    try {
+      const info = await fetchRoomInfo(roomId);
+      if (info && info.active_members > 1) {
+        const roomShareCapacity = document.getElementById("room-share-capacity");
+        if (roomShareCapacity) {
+          roomShareCapacity.textContent = `${info.active_members}/${maxMembers} (Guest Joined!)`;
+          roomShareCapacity.style.color = "var(--brand-cyan)";
+        }
+        if (!notified) {
+          notified = true;
+          toast("A participant has joined your Flash Room! Click [ ENTER FLASH ROOM ] to chat.", "info", 6000);
+        }
+      }
+    } catch {}
+  }, 3000);
+}
+
+function stopSharePanelWatcher() {
+  if (shareWatcherTimer) {
+    clearInterval(shareWatcherTimer);
+    shareWatcherTimer = null;
+  }
 }
 
 if (createRoomBtn) {
@@ -1862,6 +1899,7 @@ if (createRoomBtn) {
       if (roomPasswordContainer) roomPasswordContainer.style.display = "none";
 
       showPanel("room-share");
+      startSharePanelWatcher(res.room_id, res.max_members);
       toast("Flash Room created successfully.", "success");
     } catch (err) {
       toast(err.message || "Failed to create Flash Room", "error");
@@ -1928,6 +1966,8 @@ const roomLeaveBtn   = document.getElementById("room-leave-btn");
 
 async function leaveCurrentRoom() {
   if (!currentRoom) return;
+  stopSharePanelWatcher();
+
   const roomId = currentRoom.roomId;
   const isHost = currentRoom.isHost;
   const adminToken = currentRoom.adminToken;
@@ -2126,6 +2166,7 @@ async function initRoomPage() {
       if (roomShareDuration) roomShareDuration.textContent = `${Math.floor(savedDur / 60)} minutes`;
       if (roomShareCapacity) roomShareCapacity.textContent = `${savedMax} participants`;
       showPanel("room-share");
+      startSharePanelWatcher(roomId, savedMax);
       return;
     }
   }
