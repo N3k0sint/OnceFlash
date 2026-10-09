@@ -1285,7 +1285,7 @@ function appendSystemMessage(text, type = "join") {
   }
 
   const line = document.createElement("div");
-  line.className = `kali-sys-line${type === "leave" ? " kali-sys-leave" : ""}`;
+  line.className = `kali-sys-line ${type === "leave" ? "kali-sys-leave" : "kali-sys-join"}`;
   line.dataset.sysMsg = text;
 
   const icon = document.createElement("span");
@@ -1293,6 +1293,7 @@ function appendSystemMessage(text, type = "join") {
   icon.textContent = "[*]";
 
   const txt = document.createElement("span");
+  txt.className = "kali-sys-text";
   txt.textContent = ` ${text}`;
 
   line.appendChild(icon);

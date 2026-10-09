@@ -1895,35 +1895,41 @@ html, body {
   word-break: break-word;
 }
 
-/* System Terminal Notice */
+/* System Terminal Notice (No background box, Orange [*] icon) */
 .kali-sys-line {
-  color: #00ffc8;
-  background: rgba(0, 255, 200, 0.08);
-  border-left: 2px solid #00ffc8;
+  background: transparent;
+  border: none;
   font-size: 0.8rem;
   font-family: var(--font-mono);
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.35rem 0.6rem;
-  margin: 0.35rem 0;
-  border-radius: 3px;
+  padding: 0.2rem 0;
+  margin: 0.25rem 0;
 }
 
+/* [*] is Orange color */
 .kali-sys-icon {
-  color: #00ffc8;
+  color: #ff9f43 !important;
   font-weight: bold;
 }
 
-/* User Left / Leave Notice (Red Accent) */
-.kali-sys-line.kali-sys-leave {
-  color: #ff7b72;
-  background: rgba(255, 123, 114, 0.09);
-  border-left: 2px solid #ff7b72;
+/* Join notification words: Purple */
+.kali-sys-line,
+.kali-sys-line.kali-sys-join,
+.kali-sys-line.kali-sys-join .kali-sys-text {
+  color: #bc8cff;
 }
 
-.kali-sys-line.kali-sys-leave .kali-sys-icon {
+/* User Left / Leave Notice: Red words */
+.kali-sys-line.kali-sys-leave,
+.kali-sys-line.kali-sys-leave .kali-sys-text {
   color: #ff7b72;
+}
+
+.kali-sys-line.kali-sys-leave .kali-sys-icon,
+.kali-sys-line.kali-sys-join .kali-sys-icon {
+  color: #ff9f43 !important;
 }
 
 /* Kali Terminal Input Bar */
