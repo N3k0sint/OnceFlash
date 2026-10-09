@@ -1275,7 +1275,7 @@ function showRoomDestroyed(message = "This session has been terminated. All mess
   showPanel("room-chat");
 }
 
-function appendSystemMessage(text) {
+function appendSystemMessage(text, type = "join") {
   const container = document.getElementById("room-messages-container");
   if (!container) return;
 
@@ -1285,7 +1285,7 @@ function appendSystemMessage(text) {
   }
 
   const line = document.createElement("div");
-  line.className = "kali-sys-line";
+  line.className = `kali-sys-line${type === "leave" ? " kali-sys-leave" : ""}`;
   line.dataset.sysMsg = text;
 
   const icon = document.createElement("span");
@@ -1528,15 +1528,15 @@ async function executeRoomPoll() {
 
           if (parsed.type === "join") {
             const roleLabel = parsed.isHost ? "HOST" : "GUEST";
-            appendSystemMessage(`user joined session: ${parsed.sender} [${roleLabel}]`);
+            appendSystemMessage(`user joined session: ${parsed.sender} [${roleLabel}]`, "join");
             if (currentRoom && parsed.sender !== currentRoom.myAlias) {
               toast(`${parsed.sender} [${roleLabel}] joined the chat`, "info");
             }
           } else if (parsed.type === "leave") {
             const roleLabel = parsed.isHost ? "HOST" : "GUEST";
-            appendSystemMessage(`user left session: ${parsed.sender} [${roleLabel}]`);
+            appendSystemMessage(`user left session: ${parsed.sender} [${roleLabel}]`, "leave");
             if (currentRoom && parsed.sender !== currentRoom.myAlias) {
-              toast(`${parsed.sender} [${roleLabel}] left the chat`, "warning");
+              toast(`${parsed.sender} [${roleLabel}] left the chat`, "error");
             }
           } else {
             appendChatMessage(parsed.sender || msg.sender || "Peer", parsed.text || "", msg.timestamp, parsed.isHost, parsed.guestIndex);
@@ -1799,7 +1799,7 @@ function startSharePanelWatcher(roomId, maxMembers) {
         }
         if (!notified) {
           notified = true;
-          toast("A participant has joined your Flash Room! Click [ ENTER FLASH ROOM ] to chat.", "info", 6000);
+          toast("A participant has joined your Flash Room! Enter the chat now!", "info", 6000);
         }
       }
     } catch {}
