@@ -20,7 +20,8 @@ It is built for transmitting confidential credentials, passwords, private API ke
 - **Read Receipts & Status Tracking**: Creators can check whether a secret is `WAITING`, `OPENED`, or `DESTROYED` without compromising zero-knowledge guarantees via blind status tokens.
 - **Atomic Burn-on-Read & Dual Destruction**: Purges secrets from server RAM immediately upon view expiration. Both sender and recipient can explicitly trigger early destruction.
 - **Secondary Passphrase Protection**: Optional client-side passphrase layer derived with PBKDF2 (100,000 iterations) for defense-in-depth against unauthorized device access.
-- **Flash Room (Ephemeral Live Chat)**: Self-destructing, end-to-end encrypted live chat session for 2 to 4 participants (5 to 20 minute sessions). Messages are held in RAM, encrypted with AES-256-GCM, and automatically purged upon timer expiry or host destruction with zero traces left behind.
+- **Flash Room (Ephemeral Live Chat & File Sharing)**: Self-destructing, end-to-end encrypted live chat session for 2 to 4 participants (5 to 20 minute sessions). Supports encrypted text, photos (with client-side EXIF/metadata stripping), animated GIFs, PDF, Word documents (`.doc`/`.docx`), and text files. Messages and attachments are held in RAM, encrypted with AES-256-GCM, and automatically purged upon timer expiry or host destruction with instant participant notification and UI transition.
+- **Zero IP Retention & Anonymized Rate Limiting**: Application server logs strictly purge client IP addresses. Rate limiter keys use salted, truncated SHA-256 hashes so raw IP addresses are never logged or stored in Redis.
 - **Configurable Screen Auto-Wipe**: Recipient view automatically wipes decrypted content from memory and screen after 30s, 1m, or 5m to protect against shoulder surfing.
 - **Client-Side Offline QR Generator**: 100% in-browser SVG QR code creation with zero third-party network requests.
 - **Zero-Setup Standalone Mode**: Built-in atomic in-memory engine for instant local development without installing Redis.
@@ -86,6 +87,7 @@ Because Vercel executes on stateless, distributed serverless functions across gl
    - Copy your Redis connection URL (format: `rediss://default:TOKEN@HOST.upstash.io:6379`).
 
 4. **Configure Environment Variables in Vercel**:
+
    In your Vercel Project Settings → **Environment Variables**, add:
    - `UPSTASH_REDIS_URL`: `rediss://default:YOUR_PASSWORD@YOUR_HOST.upstash.io:6379`
    - `ALLOWED_ORIGINS`: `https://your-project-name.vercel.app`
@@ -108,6 +110,7 @@ OnceFlash/
 ├── frontend/
 │   ├── index.html           # Main composer & secret decryption web UI
 │   ├── about.html           # Dedicated About, architecture, and how-to-use page
+│   ├── privacy.html         # Dedicated Privacy Policy, Terms of Use, and zero-knowledge disclaimer
 │   ├── style.css            # Responsive design system (Dark & Light tokens, Cyan/Mint brand)
 │   ├── theme.js             # Standalone theme manager (localStorage & system preference)
 │   ├── app.js               # Client engine: envelopes, auto-wipe, file bundling & sanitization
@@ -139,6 +142,7 @@ OnceFlash is engineered under **SSDev (Secure Software Development)** and aligne
 | **A04: Insecure Design & Race Conditions** | **Atomic Burn-on-Read**: Implemented via atomic Redis Lua scripts (`LUA_READ_AND_BURN`) and an `asyncio.Lock()` in-memory engine. Two simultaneous readers can never view a 1-view secret twice; the first reader gets the secret, the second gets a 404. |
 | **A05: Security Misconfiguration** | **Hardened HTTP Headers**: Strict `Content-Security-Policy`, `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` (prevents keys leaking in Referer headers), and server version fingerprinting removal. |
 | **A07: Identification & DoS Mitigation** | **Rate Limiting**: Application-level rate limiting via SlowAPI (20 creations/min, 60 reads/min) to mitigate storage exhaustion and ID brute-forcing. |
+| **A09: Security Logging & Monitoring Failures** | **Zero IP Address Storage**: Application logs purge all IP addresses (`ip=...` omitted). Rate limiting uses salted, truncated SHA-256 hashes (`raw_ip + secret_key`) so reversible network identifiers are never persisted in logs or Redis keys. |
 
 ---
 
@@ -150,9 +154,10 @@ All settings can be configured via environment variables or a `.env` file:
 |---|---|---|
 | `REDIS_URL` | `memory://` | Connection URI. If set to `memory://`, OnceFlash uses its thread-safe in-memory store. For hosted Redis, use `rediss://...`. |
 | `UPSTASH_REDIS_URL` | `None` | Optional dedicated Upstash Redis connection string (e.g. `rediss://default:...@...upstash.io:6379`). |
+| `SECRET_KEY` | `onceflash_privacy_salt` | Cryptographic salt used to anonymize client IP addresses before evaluating rate limits in Redis. |
 | `ALLOWED_ORIGINS` | `*` | CORS origins. Restrict to `https://your-domain.vercel.app` in production. |
-| `RATE_LIMIT_CREATE` | `20/minute` | Maximum notes/files that can be created per minute per IP. |
-| `RATE_LIMIT_READ` | `60/minute` | Maximum retrieval attempts per minute per IP. |
+| `RATE_LIMIT_CREATE` | `20/minute` | Maximum notes/files that can be created per minute per anonymous hash. |
+| `RATE_LIMIT_READ` | `60/minute` | Maximum retrieval attempts per minute per anonymous hash. |
 | `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 
 ---
