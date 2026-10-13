@@ -1740,7 +1740,10 @@ async function sendCurrentRoomAttachment(file) {
 
   try {
     let processed;
-    if (isImage) {
+    if (file.type === "image/gif") {
+      // Preserve multi-frame animated GIF without canvas flattening
+      processed = await readDocumentAsDataUrl(file);
+    } else if (isImage) {
       processed = await stripImageExif(file);
     } else {
       processed = await readDocumentAsDataUrl(file);

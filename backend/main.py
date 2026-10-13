@@ -10,6 +10,7 @@ Security posture:
   - Strict OWASP security headers on every response.
 """
 
+import hashlib
 import logging
 import os
 import secrets
@@ -1012,11 +1013,21 @@ def get_client_ip(request: Request) -> str:
     return get_remote_address(request)
 
 
+def get_anonymized_rate_limit_key(request: Request) -> str:
+    """
+    Generate an anonymous salted hash for rate limiting to ensure zero real IP
+    addresses are ever stored in Redis or Upstash.
+    """
+    raw_ip = get_client_ip(request)
+    salt = settings.secret_key or "onceflash_privacy_salt"
+    return hashlib.sha256(f"{raw_ip}_{salt}".encode()).hexdigest()[:16]
+
+
 target_redis = settings.upstash_redis_url or settings.redis_url
 _is_redis = bool(target_redis and (target_redis.startswith("redis://") or target_redis.startswith("rediss://")))
 
 limiter = Limiter(
-    key_func=get_client_ip,
+    key_func=get_anonymized_rate_limit_key,
     default_limits=[],
     storage_uri=target_redis if _is_redis else None,
     swallow_errors=True,
@@ -1265,11 +1276,10 @@ async def create_paste(
         raise HTTPException(status_code=503, detail="Storage unavailable")
 
     logger.info(
-        "Paste created id=%s ttl=%ds max_views=%d ip=%s",
+        "Paste created id=%s ttl=%ds max_views=%d",
         paste_id,
         payload.ttl_seconds,
         payload.max_views,
-        get_client_ip(request),
     )
 
     return CreatePasteResponse(id=paste_id, expires_at=expires_at, status_token=status_token)
@@ -1315,10 +1325,9 @@ async def get_paste(request: Request, paste_id: str) -> JSONResponse:
     created_at = int(created_at_bytes) if created_at_bytes else 0
 
     logger.info(
-        "Paste retrieved id=%s views_left_before=%d ip=%s",
+        "Paste retrieved id=%s views_left_before=%d",
         paste_id,
         views_left,
-        get_client_ip(request),
     )
 
     return JSONResponse(
@@ -1363,7 +1372,7 @@ async def delete_paste(request: Request, paste_id: str) -> Response:
     if deleted == 0:
         raise HTTPException(status_code=404, detail="Note not found or already burned")
 
-    logger.info("Paste manually deleted id=%s ip=%s", paste_id, get_client_ip(request))
+    logger.info("Paste manually deleted id=%s", paste_id)
     return Response(status_code=204)
 
 
@@ -1468,11 +1477,10 @@ async def create_room(
         raise HTTPException(status_code=429, detail="All room slots occupied")
 
     logger.info(
-        "Room created id=%s duration=%ds max_members=%d ip=%s",
+        "Room created id=%s duration=%ds max_members=%d",
         room_id,
         payload.duration_seconds,
         payload.max_members,
-        get_client_ip(request),
     )
     return CreateRoomResponse(
         room_id=room_id,
@@ -1664,7 +1672,7 @@ async def delete_room(
     deleted = await storage.delete_room(room_id, x_admin_token)
     if not deleted:
         raise HTTPException(status_code=404, detail="Room not found or invalid token")
-    logger.info("Room destroyed id=%s ip=%s", room_id, get_client_ip(request))
+    logger.info("Room destroyed id=%s", room_id)
     return Response(status_code=204)
 
 
