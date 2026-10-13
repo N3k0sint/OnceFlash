@@ -2034,7 +2034,203 @@ html, body {
     padding: 0.5rem 0.85rem;
     font-size: 0.8rem;
   }
+
+  .kali-pin-btn {
+    width: 36px;
+    height: 36px;
+  }
 }
 
+/* Kali Terminal Attachment & Pin Button */
+.kali-pin-btn {
+  background: #0d131a;
+  border: 1px solid #1f2937;
+  border-radius: var(--radius-sm);
+  color: #8b98a5;
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  padding: 0;
+}
 
+.kali-pin-btn:hover {
+  color: #2afccf;
+  border-color: #2afccf;
+  background: #131c26;
+}
 
+.kali-pin-btn:active {
+  transform: scale(0.95);
+}
+
+.kali-attachment-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-width: 100%;
+  margin-top: 0.2rem;
+}
+
+/* Image Attachment Card */
+.kali-img-card {
+  background: #05080d;
+  border: 1px solid #1f2937;
+  border-radius: var(--radius-sm);
+  padding: 0.4rem;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-width: 320px;
+}
+
+.kali-chat-img {
+  max-width: 100%;
+  max-height: 220px;
+  border-radius: 4px;
+  object-fit: cover;
+  cursor: pointer;
+  display: block;
+  transition: opacity 0.15s ease;
+}
+
+.kali-chat-img:hover {
+  opacity: 0.9;
+}
+
+.kali-attachment-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.kali-file-name {
+  color: #f0f6fc;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 150px;
+}
+
+.kali-file-size {
+  color: #8b98a5;
+}
+
+.kali-file-dl-btn {
+  color: #2afccf;
+  text-decoration: none;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-left: auto;
+  transition: color 0.15s ease;
+  cursor: pointer;
+}
+
+.kali-file-dl-btn:hover {
+  color: #5affdf;
+  text-decoration: underline;
+}
+
+/* Document Attachment Card */
+.kali-doc-card {
+  background: #05080d;
+  border: 1px solid #1f2937;
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  max-width: 360px;
+  font-family: var(--font-mono);
+}
+
+.kali-doc-icon {
+  color: #e3b341;
+  font-weight: 700;
+  font-size: 0.8rem;
+  background: rgba(227, 179, 65, 0.1);
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+}
+
+.kali-doc-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+/* Image Lightbox Modal */
+.kali-lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(4px);
+  z-index: 10000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.kali-lightbox-content {
+  background: #0d131a;
+  border: 1px solid #243040;
+  border-radius: var(--radius-md);
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8);
+}
+
+.kali-lightbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid #1f2937;
+  background: #090d14;
+}
+
+.kali-lightbox-title {
+  color: #f0f6fc;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60%;
+}
+
+.kali-lightbox-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.kali-lightbox-body {
+  padding: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background: #05080d;
+}
+
+.kali-lightbox-body img {
+  max-width: 100%;
+  max-height: 75vh;
+  object-fit: contain;
+  border-radius: 4px;
+}

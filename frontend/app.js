@@ -1248,6 +1248,12 @@ function purgeRoomMemory() {
       clearInterval(currentRoom.countdownTimer);
       currentRoom.countdownTimer = null;
     }
+    if (currentRoom.activeBlobUrls) {
+      for (const u of currentRoom.activeBlobUrls) {
+        try { URL.revokeObjectURL(u); } catch {}
+      }
+      currentRoom.activeBlobUrls = [];
+    }
     currentRoom.cryptoKey = null;
     currentRoom.keyB64 = null;
     currentRoom.adminToken = null;
@@ -1334,13 +1340,118 @@ function getMemberColorClass(sender, isHost, guestIndex) {
   return "color-blue";
 }
 
-function appendChatMessage(sender, text, timestamp, isHostMsg, guestIndexMsg) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Zero-Knowledge Ephemeral Attachment & File Utilities (NIST / OWASP Compliant)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MAX_ATTACHMENT_SIZE = 1.5 * 1024 * 1024; // 1.5 MB strict ceiling
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes === 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+async function stripImageExif(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        // Redrawing to canvas completely strips EXIF metadata (GPS, device info)
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 1920;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const format = file.type === "image/png" ? "image/png" : "image/jpeg";
+        const cleanDataUrl = canvas.toDataURL(format, 0.90);
+        resolve({
+          dataUrl: cleanDataUrl,
+          type: format,
+        });
+      };
+      img.onerror = () => reject(new Error("Failed to decode image"));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function readDocumentAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({ dataUrl: reader.result, type: file.type || "application/octet-stream" });
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function openImageLightbox(url, fileName) {
+  let modal = document.getElementById("kali-lightbox-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "kali-lightbox-modal";
+    modal.className = "kali-lightbox-overlay";
+    modal.innerHTML = `
+      <div class="kali-lightbox-content">
+        <div class="kali-lightbox-header">
+          <span class="kali-lightbox-title" id="kali-lightbox-title"></span>
+          <div class="kali-lightbox-actions">
+            <a id="kali-lightbox-dl" class="btn-primary" style="padding: 0.35rem 0.75rem; font-size: 0.75rem;" download>[ DOWNLOAD ]</a>
+            <button type="button" class="btn-secondary" style="padding: 0.35rem 0.75rem; font-size: 0.75rem;" id="kali-lightbox-close">[ CLOSE ]</button>
+          </div>
+        </div>
+        <div class="kali-lightbox-body">
+          <img id="kali-lightbox-img" src="" alt="" />
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal || e.target.id === "kali-lightbox-close") {
+        modal.style.display = "none";
+      }
+    });
+  }
+
+  const titleEl = document.getElementById("kali-lightbox-title");
+  const imgEl = document.getElementById("kali-lightbox-img");
+  const dlEl = document.getElementById("kali-lightbox-dl");
+
+  if (titleEl) titleEl.textContent = fileName;
+  if (imgEl) imgEl.src = url;
+  if (dlEl) {
+    dlEl.href = url;
+    dlEl.download = fileName;
+  }
+
+  modal.style.display = "flex";
+}
+
+function appendChatMessage(sender, text, timestamp, isHostMsg, guestIndexMsg, clientMsgId) {
   const container = document.getElementById("room-messages-container");
   if (!container) return;
 
   const sig = `${sender}_${timestamp}_${text}`;
   const lastChild = container.lastElementChild;
-  if (lastChild && lastChild.dataset.msgSig === sig) {
+  if (lastChild && (lastChild.dataset.msgSig === sig || (clientMsgId && lastChild.dataset.clientMsgId === clientMsgId))) {
     return; // Prevent duplicate rendering of identical message
   }
 
@@ -1361,6 +1472,7 @@ function appendChatMessage(sender, text, timestamp, isHostMsg, guestIndexMsg) {
   const block = document.createElement("div");
   block.className = "kali-msg-block";
   block.dataset.msgSig = sig;
+  if (clientMsgId) block.dataset.clientMsgId = clientMsgId;
 
   const promptLine = document.createElement("div");
   promptLine.className = "kali-msg-prompt";
@@ -1427,6 +1539,263 @@ function appendChatMessage(sender, text, timestamp, isHostMsg, guestIndexMsg) {
 
   container.appendChild(block);
   container.scrollTop = container.scrollHeight;
+}
+
+function appendChatFile(sender, fileData, timestamp, isHostMsg, guestIndexMsg, clientMsgId) {
+  const container = document.getElementById("room-messages-container");
+  if (!container) return;
+
+  const lastChild = container.lastElementChild;
+  if (lastChild && clientMsgId && lastChild.dataset.clientMsgId === clientMsgId) {
+    return;
+  }
+
+  const isSelf = currentRoom && (sender === currentRoom.myAlias);
+  const isHost = (isHostMsg !== undefined) ? isHostMsg : (isSelf ? currentRoom.isHost : false);
+  const guestIndex = (guestIndexMsg !== undefined) ? guestIndexMsg : (isSelf ? currentRoom.guestIndex : undefined);
+
+  if (sender) {
+    memberColorMap.set(sender, {
+      isHost,
+      guestIndex: (guestIndex !== undefined) ? guestIndex : (isHost ? 0 : undefined),
+    });
+  }
+
+  const colorClass = getMemberColorClass(sender, isHost, guestIndex);
+  const role = isSelf ? (currentRoom.isHost ? "host" : "you") : (isHost ? "host" : "peer");
+
+  const block = document.createElement("div");
+  block.className = "kali-msg-block";
+  if (clientMsgId) block.dataset.clientMsgId = clientMsgId;
+
+  const promptLine = document.createElement("div");
+  promptLine.className = "kali-msg-prompt";
+
+  const corner = document.createElement("span");
+  corner.className = "kali-prompt-corner";
+  corner.textContent = "┌──(";
+
+  const userTag = document.createElement("span");
+  userTag.className = `kali-user-tag ${colorClass}`;
+  userTag.textContent = sender;
+
+  const icon = document.createElement("span");
+  icon.className = `kali-prompt-icon ${colorClass}`;
+  icon.textContent = "㉿";
+
+  const roleTag = document.createElement("span");
+  roleTag.className = `kali-prompt-role ${colorClass}`;
+  roleTag.textContent = role;
+
+  const closeParen = document.createElement("span");
+  closeParen.className = "kali-prompt-corner";
+  closeParen.textContent = ")-[";
+
+  const dirTag = document.createElement("span");
+  dirTag.className = "kali-prompt-dir";
+  dirTag.textContent = "~/room";
+
+  const endBracket = document.createElement("span");
+  endBracket.className = "kali-prompt-corner";
+  endBracket.textContent = "]";
+
+  const timeSpan = document.createElement("span");
+  timeSpan.className = "kali-msg-time";
+  timeSpan.textContent = timestamp
+    ? `[${new Date(timestamp * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}]`
+    : `[${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}]`;
+
+  promptLine.appendChild(corner);
+  promptLine.appendChild(userTag);
+  promptLine.appendChild(icon);
+  promptLine.appendChild(roleTag);
+  promptLine.appendChild(closeParen);
+  promptLine.appendChild(dirTag);
+  promptLine.appendChild(endBracket);
+  promptLine.appendChild(timeSpan);
+
+  const bodyLine = document.createElement("div");
+  bodyLine.className = "kali-msg-body";
+
+  const arrow = document.createElement("span");
+  arrow.className = `kali-arrow ${colorClass}`;
+  arrow.textContent = "└─$";
+
+  const contentWrap = document.createElement("div");
+  contentWrap.className = "kali-attachment-wrap";
+
+  const safeFileName = (fileData.fileName || "attachment").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 64);
+  const fileType = fileData.fileType || "";
+  const isImage = fileType.startsWith("image/");
+  const formattedSize = formatFileSize(fileData.fileSize || 0);
+
+  let blobUrl = "";
+  try {
+    const blob = dataUrlToBlob(fileData.dataUrl);
+    blobUrl = URL.createObjectURL(blob);
+    if (!currentRoom.activeBlobUrls) currentRoom.activeBlobUrls = [];
+    currentRoom.activeBlobUrls.push(blobUrl);
+  } catch (blobErr) {
+    blobUrl = fileData.dataUrl;
+  }
+
+  if (isImage) {
+    const imgCard = document.createElement("div");
+    imgCard.className = "kali-img-card";
+
+    const imgPreview = document.createElement("img");
+    imgPreview.className = "kali-chat-img";
+    imgPreview.src = blobUrl;
+    imgPreview.alt = safeFileName;
+    imgPreview.loading = "lazy";
+    imgPreview.addEventListener("click", () => {
+      openImageLightbox(blobUrl, safeFileName);
+    });
+
+    const metaRow = document.createElement("div");
+    metaRow.className = "kali-attachment-meta";
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "kali-file-name";
+    nameSpan.textContent = safeFileName;
+
+    const sizeSpan = document.createElement("span");
+    sizeSpan.className = "kali-file-size";
+    sizeSpan.textContent = `(${formattedSize})`;
+
+    const dlLink = document.createElement("a");
+    dlLink.className = "kali-file-dl-btn";
+    dlLink.href = blobUrl;
+    dlLink.download = safeFileName;
+    dlLink.textContent = "[ ⬇ DOWNLOAD ]";
+
+    metaRow.appendChild(nameSpan);
+    metaRow.appendChild(sizeSpan);
+    metaRow.appendChild(dlLink);
+
+    imgCard.appendChild(imgPreview);
+    imgCard.appendChild(metaRow);
+    contentWrap.appendChild(imgCard);
+  } else {
+    const docCard = document.createElement("div");
+    docCard.className = "kali-doc-card";
+
+    const iconSpan = document.createElement("span");
+    iconSpan.className = "kali-doc-icon";
+    iconSpan.textContent = "[DOC]";
+
+    const infoDiv = document.createElement("div");
+    infoDiv.className = "kali-doc-info";
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "kali-file-name";
+    nameSpan.textContent = safeFileName;
+
+    const sizeSpan = document.createElement("span");
+    sizeSpan.className = "kali-file-size";
+    sizeSpan.textContent = `(${formattedSize})`;
+
+    infoDiv.appendChild(nameSpan);
+    infoDiv.appendChild(sizeSpan);
+
+    const dlLink = document.createElement("a");
+    dlLink.className = "kali-file-dl-btn";
+    dlLink.href = blobUrl;
+    dlLink.download = safeFileName;
+    dlLink.textContent = "[ ⬇ DOWNLOAD ]";
+
+    docCard.appendChild(iconSpan);
+    docCard.appendChild(infoDiv);
+    docCard.appendChild(dlLink);
+    contentWrap.appendChild(docCard);
+  }
+
+  bodyLine.appendChild(arrow);
+  bodyLine.appendChild(contentWrap);
+
+  block.appendChild(promptLine);
+  block.appendChild(bodyLine);
+
+  container.appendChild(block);
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendCurrentRoomAttachment(file) {
+  if (!currentRoom || currentRoom.isDestroyed || !file) return;
+
+  if (file.size > MAX_ATTACHMENT_SIZE) {
+    toast(`File exceeds 1.5 MB limit (${formatFileSize(file.size)}). Please select a smaller file.`, "error", 4000);
+    return;
+  }
+
+  const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 64) || "attachment";
+  const isImage = file.type.startsWith("image/");
+  const localId = `loc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const nowTs = Math.floor(Date.now() / 1000);
+
+  const attachBtn = document.getElementById("room-attach-btn");
+  if (attachBtn) attachBtn.disabled = true;
+
+  toast(`Encrypting ${isImage ? "image" : "document"} (${formatFileSize(file.size)})...`, "info", 2000);
+
+  try {
+    let processed;
+    if (isImage) {
+      processed = await stripImageExif(file);
+    } else {
+      processed = await readDocumentAsDataUrl(file);
+    }
+
+    if (!currentRoom.seenMsgIds) {
+      currentRoom.seenMsgIds = new Set();
+    }
+    currentRoom.seenMsgIds.add(localId);
+
+    // Optimistic immediate render on sender's terminal
+    appendChatFile(
+      currentRoom.myAlias,
+      {
+        fileName: safeFileName,
+        fileType: processed.type || file.type,
+        fileSize: file.size,
+        dataUrl: processed.dataUrl,
+      },
+      nowTs,
+      currentRoom.isHost,
+      currentRoom.guestIndex,
+      localId
+    );
+
+    const payload = JSON.stringify({
+      type: "file",
+      msgId: localId,
+      sender: currentRoom.myAlias,
+      isHost: currentRoom.isHost,
+      guestIndex: currentRoom.guestIndex,
+      fileName: safeFileName,
+      fileType: processed.type || file.type,
+      fileSize: file.size,
+      dataUrl: processed.dataUrl,
+      timestamp: nowTs,
+    });
+
+    const ciphertext = await encrypt(currentRoom.cryptoKey, payload);
+
+    await sendRoomMessage(currentRoom.roomId, {
+      clientId: currentRoom.clientToken,
+      sender: currentRoom.myAlias,
+      ciphertext,
+    });
+
+    executeRoomPoll();
+  } catch (err) {
+    console.error("Failed to process/send attachment:", err);
+    toast(err.message || "Failed to send attachment", "error");
+  } finally {
+    if (attachBtn) attachBtn.disabled = false;
+    const fileInput = document.getElementById("room-file-input");
+    if (fileInput) fileInput.value = "";
+  }
 }
 
 function startRoomCountdown() {
@@ -1504,6 +1873,9 @@ async function executeRoomPoll() {
 
     if (Array.isArray(data.messages) && data.messages.length > 0) {
       for (const msg of data.messages) {
+        if (msg.seq) {
+          currentRoom.lastMsgIndex = Math.max(currentRoom.lastMsgIndex || 0, msg.seq);
+        }
         // Robust deduplication across all clients and poll cycles
         const msgId = msg.id || (msg.seq ? `seq_${msg.seq}` : `${msg.timestamp}_${msg.sender}_${(msg.ciphertext || "").slice(0, 32)}`);
         if (currentRoom.seenMsgIds.has(msgId)) {
@@ -1527,6 +1899,14 @@ async function executeRoomPoll() {
             });
           }
 
+          // Deduplicate optimistically rendered message
+          if (parsed.msgId && currentRoom.seenMsgIds.has(parsed.msgId)) {
+            continue;
+          }
+          if (parsed.msgId) {
+            currentRoom.seenMsgIds.add(parsed.msgId);
+          }
+
           if (parsed.type === "join") {
             const roleLabel = parsed.isHost ? "HOST" : "GUEST";
             appendSystemMessage(`user joined session: ${parsed.sender} [${roleLabel}]`, "join");
@@ -1539,8 +1919,10 @@ async function executeRoomPoll() {
             if (currentRoom && parsed.sender !== currentRoom.myAlias) {
               toast(`${parsed.sender} [${roleLabel}] left the chat`, "error");
             }
+          } else if (parsed.type === "file") {
+            appendChatFile(parsed.sender || msg.sender || "Peer", parsed, msg.timestamp, parsed.isHost, parsed.guestIndex, parsed.msgId);
           } else {
-            appendChatMessage(parsed.sender || msg.sender || "Peer", parsed.text || "", msg.timestamp, parsed.isHost, parsed.guestIndex);
+            appendChatMessage(parsed.sender || msg.sender || "Peer", parsed.text || "", msg.timestamp, parsed.isHost, parsed.guestIndex, parsed.msgId);
           }
         } catch (decErr) {
           console.warn("Failed to decrypt room message:", decErr);
@@ -1549,10 +1931,8 @@ async function executeRoomPoll() {
     }
 
     // Monotonic sequence tracking: ensures no messages are missed even with high volume
-    if (data.current_seq !== undefined) {
+    if (data.current_seq !== undefined && Array.isArray(data.messages) && data.messages.length > 0) {
       currentRoom.lastMsgIndex = Math.max(currentRoom.lastMsgIndex || 0, data.current_seq);
-    } else if (data.total !== undefined) {
-      currentRoom.lastMsgIndex = Math.max(currentRoom.lastMsgIndex || 0, data.total);
     }
   } catch (err) {
     if (err.status === 404 || (err.message && err.message.includes("404"))) {
@@ -1680,10 +2060,31 @@ async function sendCurrentRoomMessage() {
   inputEl.style.height = "auto";
   if (sendBtn) sendBtn.disabled = true;
 
+  const localId = `loc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const nowTs = Math.floor(Date.now() / 1000);
+
+  if (!currentRoom.seenMsgIds) {
+    currentRoom.seenMsgIds = new Set();
+  }
+  currentRoom.seenMsgIds.add(localId);
+
+  // Optimistic immediate render: sender instantly sees their message without waiting for polling
+  appendChatMessage(
+    currentRoom.myAlias,
+    text,
+    nowTs,
+    currentRoom.isHost,
+    currentRoom.guestIndex,
+    localId
+  );
+
   try {
     const payload = JSON.stringify({
+      type: "chat",
+      msgId: localId,
       sender: currentRoom.myAlias,
       text,
+      timestamp: nowTs,
       isHost: currentRoom.isHost,
       guestIndex: currentRoom.guestIndex,
     });
@@ -2043,8 +2444,23 @@ if (roomLeaveBtn)   roomLeaveBtn.addEventListener("click", leaveCurrentRoom);
 
 const roomSendBtn      = document.getElementById("room-send-btn");
 const roomMessageInput = document.getElementById("room-message-input");
+const roomAttachBtn    = document.getElementById("room-attach-btn");
+const roomFileInput    = document.getElementById("room-file-input");
 
 if (roomSendBtn) roomSendBtn.addEventListener("click", sendCurrentRoomMessage);
+
+if (roomAttachBtn && roomFileInput) {
+  roomAttachBtn.addEventListener("click", () => {
+    roomFileInput.click();
+  });
+
+  roomFileInput.addEventListener("change", (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      sendCurrentRoomAttachment(file);
+    }
+  });
+}
 
 if (roomMessageInput) {
   roomMessageInput.addEventListener("keydown", (e) => {

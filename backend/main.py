@@ -1193,7 +1193,7 @@ class LeaveRoomRequest(BaseModel):
 class SendRoomMessageRequest(BaseModel):
     client_id: str = Field(..., min_length=4, max_length=64)
     sender: str = Field(default="Anonymous", max_length=32)
-    ciphertext: str = Field(..., min_length=1, max_length=8000)
+    ciphertext: str = Field(..., min_length=1, max_length=3_500_000)
     iv: str = Field(default="", max_length=100)
 
 
