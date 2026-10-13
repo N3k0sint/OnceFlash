@@ -1267,11 +1267,20 @@ function purgeRoomMemory() {
   }
 }
 
+function isRoomDestroyedError(err) {
+  if (!err) return false;
+  if (err.status === 404) return true;
+  const msg = String(err.message || "").toLowerCase();
+  return msg.includes("404") || msg.includes("room not found") || msg.includes("session ended") || msg.includes("already destroyed") || msg.includes("destroyed");
+}
+
 function showRoomDestroyed(message = "This session has been terminated. All messages have been wiped from memory and local crypto keys have been discarded.") {
+  const destroyedView = document.getElementById("room-destroyed-screen");
+  const wasAlreadyDestroyed = destroyedView && destroyedView.style.display === "block";
+
   purgeRoomMemory();
   const joinView = document.getElementById("room-join-interstitial");
   const activeView = document.getElementById("room-chat-active");
-  const destroyedView = document.getElementById("room-destroyed-screen");
   const descEl = document.getElementById("room-destroyed-desc");
 
   if (joinView) joinView.style.display = "none";
@@ -1279,6 +1288,14 @@ function showRoomDestroyed(message = "This session has been terminated. All mess
   if (descEl) descEl.textContent = message;
   if (destroyedView) destroyedView.style.display = "block";
   showPanel("room-chat");
+
+  if (!wasAlreadyDestroyed) {
+    if (message.includes("You left") || message.includes("departed")) {
+      toast("You departed the Flash Room. Session ended.", "info", 4000);
+    } else {
+      toast("Flash Room was destroyed & purged.", "error", 4500);
+    }
+  }
 }
 
 function appendSystemMessage(text, type = "join") {
@@ -1667,7 +1684,7 @@ function appendChatFile(sender, fileData, timestamp, isHostMsg, guestIndexMsg, c
     dlLink.className = "kali-file-dl-btn";
     dlLink.href = blobUrl;
     dlLink.download = safeFileName;
-    dlLink.textContent = "[ ⬇ DOWNLOAD ]";
+    dlLink.textContent = "[ DOWNLOAD ]";
 
     metaRow.appendChild(nameSpan);
     metaRow.appendChild(sizeSpan);
@@ -1702,7 +1719,7 @@ function appendChatFile(sender, fileData, timestamp, isHostMsg, guestIndexMsg, c
     dlLink.className = "kali-file-dl-btn";
     dlLink.href = blobUrl;
     dlLink.download = safeFileName;
-    dlLink.textContent = "[ ⬇ DOWNLOAD ]";
+    dlLink.textContent = "[ DOWNLOAD ]";
 
     docCard.appendChild(iconSpan);
     docCard.appendChild(infoDiv);
@@ -1793,7 +1810,11 @@ async function sendCurrentRoomAttachment(file) {
     executeRoomPoll();
   } catch (err) {
     console.error("Failed to process/send attachment:", err);
-    toast(err.message || "Failed to send attachment", "error");
+    if (isRoomDestroyedError(err)) {
+      showRoomDestroyed("This Flash Room was destroyed by the host or expired. All messages permanently purged.");
+    } else {
+      toast(err.message || "Failed to send attachment", "error");
+    }
   } finally {
     if (attachBtn) attachBtn.disabled = false;
     const fileInput = document.getElementById("room-file-input");
@@ -1938,7 +1959,7 @@ async function executeRoomPoll() {
       currentRoom.lastMsgIndex = Math.max(currentRoom.lastMsgIndex || 0, data.current_seq);
     }
   } catch (err) {
-    if (err.status === 404 || (err.message && err.message.includes("404"))) {
+    if (isRoomDestroyedError(err)) {
       showRoomDestroyed("This Flash Room was destroyed by the host or expired. All messages permanently purged.");
       return;
     }
@@ -2101,8 +2122,8 @@ async function sendCurrentRoomMessage() {
 
     executeRoomPoll();
   } catch (err) {
-    if (err.status === 404 || (err.message && err.message.includes("404"))) {
-      showRoomDestroyed();
+    if (isRoomDestroyedError(err)) {
+      showRoomDestroyed("This Flash Room was destroyed by the host or expired. All messages permanently purged.");
     } else {
       toast(err.message || "Failed to send message", "error");
     }
@@ -2758,7 +2779,7 @@ async function initRoomPage() {
       }
     }
   } catch (err) {
-    if (err.status === 404 || (err.message && err.message.includes("404"))) {
+    if (isRoomDestroyedError(err)) {
       showRoomDestroyed("This Flash Room has expired or was destroyed.");
     } else {
       showRoomDestroyed(err.message || "Unable to access Flash Room.");

@@ -209,11 +209,15 @@ export async function fetchRoomInfo(roomId) {
   });
 
   if (response.status === 404) {
-    throw new Error("Room not found or session ended");
+    const err = new Error("Room not found or session ended");
+    err.status = 404;
+    throw err;
   }
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: "Failed to fetch room info" }));
-    throw new Error(err.detail || `HTTP ${response.status}`);
+    const errData = await response.json().catch(() => ({ detail: "Failed to fetch room info" }));
+    const err = new Error(errData.detail || `HTTP ${response.status}`);
+    err.status = response.status;
+    throw err;
   }
 
   return response.json();
@@ -238,14 +242,20 @@ export async function joinRoom(roomId, clientId, adminToken = null) {
   });
 
   if (response.status === 404) {
-    throw new Error("Room not found or session ended");
+    const err = new Error("Room not found or session ended");
+    err.status = 404;
+    throw err;
   }
   if (response.status === 403) {
-    throw new Error("Room is full");
+    const err = new Error("Room is full");
+    err.status = 403;
+    throw err;
   }
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: "Failed to join room" }));
-    throw new Error(err.detail || `HTTP ${response.status}`);
+    const errData = await response.json().catch(() => ({ detail: "Failed to join room" }));
+    const err = new Error(errData.detail || `HTTP ${response.status}`);
+    err.status = response.status;
+    throw err;
   }
 
   return response.json();
@@ -302,11 +312,15 @@ export async function sendRoomMessage(roomId, { clientId, sender, ciphertext, iv
   });
 
   if (response.status === 404) {
-    throw new Error("Room not found or session ended");
+    const err = new Error("Room not found or session ended");
+    err.status = 404;
+    throw err;
   }
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: "Failed to send message" }));
-    throw new Error(err.detail || `HTTP ${response.status}`);
+    const errData = await response.json().catch(() => ({ detail: "Failed to send message" }));
+    const err = new Error(errData.detail || `HTTP ${response.status}`);
+    err.status = response.status;
+    throw err;
   }
 
   return response.json();
@@ -330,11 +344,15 @@ export async function fetchRoomMessages(roomId, { clientId, since = 0 }) {
   });
 
   if (response.status === 404) {
-    throw new Error("Room not found or session ended");
+    const err = new Error("Room not found or session ended");
+    err.status = 404;
+    throw err;
   }
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ detail: "Failed to fetch messages" }));
-    throw new Error(err.detail || `HTTP ${response.status}`);
+    const errData = await response.json().catch(() => ({ detail: "Failed to fetch messages" }));
+    const err = new Error(errData.detail || `HTTP ${response.status}`);
+    err.status = response.status;
+    throw err;
   }
 
   return response.json();
@@ -357,10 +375,14 @@ export async function destroyRoom(roomId, adminToken) {
 
   if (response.status === 204) return;
   if (response.status === 404) {
-    throw new Error("Room not found or already destroyed");
+    const err = new Error("Room not found or already destroyed");
+    err.status = 404;
+    throw err;
   }
-  const err = await response.json().catch(() => ({ detail: "Failed to destroy room" }));
-  throw new Error(err.detail || `HTTP ${response.status}`);
+  const errData = await response.json().catch(() => ({ detail: "Failed to destroy room" }));
+  const err = new Error(errData.detail || `HTTP ${response.status}`);
+  err.status = response.status;
+  throw err;
 }
 
 
