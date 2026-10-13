@@ -40,6 +40,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    secret_key: str = "onceflash_privacy_salt"
     redis_url: str = "memory://"
     upstash_redis_url: Optional[str] = None
     allowed_origins: str | list[str] = ["*"]          # Tighten in production
@@ -1019,7 +1020,7 @@ def get_anonymized_rate_limit_key(request: Request) -> str:
     addresses are ever stored in Redis or Upstash.
     """
     raw_ip = get_client_ip(request)
-    salt = settings.secret_key or "onceflash_privacy_salt"
+    salt = getattr(settings, "secret_key", "onceflash_privacy_salt") or "onceflash_privacy_salt"
     return hashlib.sha256(f"{raw_ip}_{salt}".encode()).hexdigest()[:16]
 
 
